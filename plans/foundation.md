@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: []
 specs:
   - specs/architecture.md
@@ -33,13 +33,13 @@ The reusable substrate every command sits on. **In:** project wiring (`bin/`, `c
 
 ## Validation
 
-- [ ] `bun run build` compiles clean; `dist/bin/harvest-axi.js` is executable.
-- [ ] `harvest-axi` (no args) prints bin + description home header (stub data ok).
-- [ ] `harvest-axi --help` and `-v` work via the SDK fast paths.
-- [ ] `harvestRequest` injects all three headers; a 401 surfaces `TOKEN_INVALID` with the `auth setup` suggestion and no raw body.
-- [ ] `paginateAll` fetches every page of a >2000-row fixture and reports `complete: true` with the right `total_entries`.
-- [ ] `parseRange` unit tests: `--since 7d`, `--this-week`, `--from/--to`, named windows, and a bad input → `VALIDATION_ERROR`. Stamped `label` includes the explicit year.
-- [ ] Output helpers have parity tests with the expected TOON shapes.
+- [x] `bun run build` compiles clean; `dist/bin/harvest-axi.js` is executable.
+- [x] `harvest-axi` (no args) prints bin + description home header (stub data ok).
+- [x] `harvest-axi --help` and `-v` work via the SDK fast paths.
+- [x] `harvestRequest` injects all three headers; a 401 surfaces `TOKEN_INVALID` with the `auth setup` suggestion and no raw body.
+- [x] `paginateAll` fetches every page of a >2000-row fixture and reports `complete: true` with the right `total_entries`.
+- [x] `parseRange` unit tests: `--since 7d`, `--this-week`, `--from/--to`, named windows, and a bad input → `VALIDATION_ERROR`. Stamped `label` includes the explicit year.
+- [x] Output helpers have parity tests with the expected TOON shapes.
 
 ## Risks / unknowns
 
@@ -48,4 +48,13 @@ The reusable substrate every command sits on. **In:** project wiring (`bin/`, `c
 
 ## Notes
 
+- Output helpers (`schema.ts`/`render.ts`) ported verbatim-in-spirit from gws-axi — same `FieldDef`/`renderListResponse` API, so review/entries rendering matches the sibling tools.
+- `paginateAll` paginates by incrementing `page` to `total_pages` (and breaks on a null `links.next`); `complete` is computed as `items.length === total_entries`, which is the load-bearing signal for the review `complete:` marker.
+- `parseRange` decides off-by-N deliberately: `--since 7d` subtracts exactly 7 days and the **stamped label surfaces the resolved bounds**, so any window ambiguity is visible rather than hidden (the principle in action). Weeks default Monday-start; revisit against the live account's preference (see risk).
+- Bootstrap committed directly to `main` — this is a fresh local repo with no remote yet, so no PR/`pr:` field. Future feature plans should branch + PR once a remote exists.
+- `axi-sdk-js` resolved to 0.1.7 (newer than the 0.1.4 gws-axi pins); `runAxiCli` API unchanged.
+
 ## Follow-ups
+
+- Tracked as: confirm the live Harvest account's week-start preference; if Sunday, parameterize `startOfWeek` and note it in `specs/behaviors/date-ranges.md`.
+- Deferred to [`ambient`](ambient.md) — the home view's live "today" line (needs entry reads).
