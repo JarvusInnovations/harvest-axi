@@ -1,0 +1,50 @@
+{
+  "name": "harvest-axi",
+  "version": "0.1.0",
+  "description": "AXI-compliant Harvest time-tracking CLI — token-efficient TOON output, period-based time-entry review for self/team/project/client, and timesheet editing.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JarvusInnovations/harvest-axi.git"
+  },
+  "keywords": [
+    "harvest",
+    "time-tracking",
+    "timesheet",
+    "cli",
+    "agent",
+    "axi",
+    "toon"
+  ],
+  "bin": {
+    "harvest-axi": "dist/bin/harvest-axi.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/bin/harvest-axi.js",
+    "dev": "bun bin/harvest-axi.ts",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Jarvus Innovations <hello@jarv.us>",
+  "dependencies": {
+    "@toon-format/toon": "^2.3.0",
+    "axi-sdk-js": "^0.1.7"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}
