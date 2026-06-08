@@ -40,6 +40,19 @@ describe("harvestRequest", () => {
     });
   });
 
+  it("does not leak a raw JSON error body in the NOT_FOUND message", async () => {
+    mockFetch(new Response(JSON.stringify({ status: 404, error: "Not Found" }), { status: 404 }));
+    try {
+      await harvestRequest("time_entries/1", { credentials: CREDS });
+      throw new Error("should have thrown");
+    } catch (err) {
+      const message = (err as { message: string }).message;
+      expect((err as { code: string }).code).toBe("NOT_FOUND");
+      expect(message).not.toContain("{"); // no raw JSON
+      expect(message).toContain("Not Found"); // but the human field is surfaced
+    }
+  });
+
   it("translates 422 to VALIDATION_ERROR", async () => {
     mockFetch(new Response(JSON.stringify({ message: "task is required" }), { status: 422 }));
     await expect(

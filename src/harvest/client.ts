@@ -54,9 +54,17 @@ async function translateHarvestError(
     const text = await res.text();
     if (text) {
       try {
-        const parsed = JSON.parse(text) as { message?: string; error_description?: string };
-        detail = parsed.message ?? parsed.error_description ?? text;
+        const parsed = JSON.parse(text) as {
+          message?: string;
+          error_description?: string;
+          error?: string;
+        };
+        // Use a human message field if present; never fall back to dumping the
+        // raw JSON body (e.g. {"status":404,...}) — that's the API noise the
+        // translate-don't-leak principle forbids.
+        detail = parsed.message ?? parsed.error_description ?? parsed.error ?? "";
       } catch {
+        // Non-JSON body — a plain-text message is safe to surface.
         detail = text;
       }
     }
