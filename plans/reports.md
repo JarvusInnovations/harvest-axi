@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [review]
 specs:
   - specs/api/reports.md
@@ -35,17 +35,25 @@ The two specs are authored and committed:
 ## Validation
 
 - [x] `specs/api/reports.md` and `specs/commands/reports.md` authored and accepted (gate).
-- [ ] `reports projects` / `clients` / `tasks` / `team` return aggregated totals with billable amounts against the live account.
-- [ ] A `reports` total cross-checks against a `review` hours total for the same window/scope.
-- [ ] A window > 365 days is rejected with a `VALIDATION_ERROR` before any call.
-- [ ] Empty window → definitive empty state; structured numeric header (no quoted prose).
-- [ ] Reports-API 429s are honored (Retry-After) without leaking raw errors (shared client path).
+- [x] `reports projects` / `clients` / `tasks` / `team` return aggregated totals with billable amounts against the live account. _(projects + team live with $ amounts; clients/tasks via unit tests on the identical axis-generic path)_
+- [x] A `reports` total cross-checks against a `review` hours total for the same window/scope. _(reports 915.5h == review --team --last-month --rounded 915.5h; see rounded-hours note)_
+- [x] A window > 365 days is rejected with a `VALIDATION_ERROR` before any call. _(live: exit 2, no fetch)_
+- [x] Empty window → definitive empty state; structured numeric header (no quoted prose). _(unit: `tasks --today`; header structured live)_
+- [x] Reports-API 429s are honored (Retry-After) without leaking raw errors (shared client path). _(reports goes through paginateAll→harvestRequest; 429 translation unit-tested in client.test)_
 
 ## Risks / unknowns
 
 - **Reports rate limit (100 / 15 min)** — far tighter than standard; the command does few wide calls (one paginated sweep per invocation).
-- **Mixed currencies** — summing `billable_amount` across currencies is meaningless; detect >1 distinct currency and disclose rather than sum.
+- **Mixed currencies** — RESOLVED: >1 distinct currency → header shows `(mixed currencies — not summed)` instead of a meaningless sum (unit-tested).
 
 ## Notes
+
+- **Reports sum rounded hours, not raw.** Verified live: `reports team --last-month` = 915.5h matched `review --team --last-month --rounded` exactly, while raw `review` = 901.5h (a ~1.5% gap from per-entry rounding). This is a durable API fact, so it's documented in `specs/api/reports.md` (not just here) — agents reconciling the two totals must use `review --rounded`.
+- **Two report axes cross-validate**: `reports projects` and `reports team` for the same window return identical grand totals (both aggregate all entries), which is a strong correctness check.
+- `reports` is account-wide for the axis (role-limited); it has no per-user/scope filter by design — narrow scoping is `review`'s job. Suggestions point back to `review --by none` for the entries behind a row.
+
+## Follow-ups
+
+- Tracked as: `--include-forecast` (scheduled_hours on projects/team) and a `--csv`/raw-amount export were considered out of scope for v1; revisit if a budgeting workflow needs them.
 
 ## Follow-ups
