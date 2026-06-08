@@ -108,6 +108,19 @@ describe("auth setup", () => {
     const cfg = JSON.parse(readFileSync(configPath(), "utf-8"));
     expect(cfg.account_id).toBe("999");
   });
+
+  it("is idempotent: re-running with the same creds re-validates and reports connected", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(ME))
+      .mockResolvedValueOnce(jsonResponse(COMPANY))
+      .mockResolvedValueOnce(jsonResponse(ME))
+      .mockResolvedValueOnce(jsonResponse(COMPANY));
+    await authCommand(["setup", "--token", "t", "--account", "999"]);
+    const out = await authCommand(["setup", "--token", "t", "--account", "999"]);
+    expect(out).toContain("connected");
+    const cfg = JSON.parse(readFileSync(configPath(), "utf-8"));
+    expect(cfg.account_id).toBe("999");
+  });
 });
 
 describe("auth whoami / logout", () => {
@@ -119,5 +132,41 @@ describe("auth whoami / logout", () => {
   it("logout is a no-op when nothing is stored", async () => {
     const out = await authCommand(["logout"]);
     expect(out).toContain("no-op");
+  });
+
+  it("whoami uses the cache without an API call; --refresh re-fetches", async () => {
+    // Seed config via setup (3 fetches: accounts, me, company).
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ accounts: [{ id: 5, name: "Co", product: "harvest" }] }))
+      .mockResolvedValueOnce(jsonResponse(ME))
+      .mockResolvedValueOnce(jsonResponse(COMPANY));
+    await authCommand(["setup", "--token", "t"]);
+
+    // Cached whoami: no further fetches.
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy.mockClear();
+    const cached = await authCommand(["whoami"]);
+    expect(cached).toContain("Chris Alfano");
+    expect(spy).not.toHaveBeenCalled();
+
+    // --refresh re-fetches users/me + company.
+    spy.mockResolvedValueOnce(jsonResponse(ME)).mockResolvedValueOnce(jsonResponse(COMPANY));
+    await authCommand(["whoami", "--refresh"]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("logout removes a stored config; a second logout is a no-op", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(ME))
+      .mockResolvedValueOnce(jsonResponse(COMPANY));
+    await authCommand(["setup", "--token", "t", "--account", "1"]);
+    expect(existsSync(configPath())).toBe(true);
+
+    const first = await authCommand(["logout"]);
+    expect(first).toContain("removed");
+    expect(existsSync(configPath())).toBe(false);
+
+    const second = await authCommand(["logout"]);
+    expect(second).toContain("no-op");
   });
 });
