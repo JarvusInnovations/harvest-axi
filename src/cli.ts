@@ -6,6 +6,7 @@ import { homeCommand } from "./commands/home.js";
 import { authCommand, AUTH_HELP } from "./commands/auth.js";
 import { doctorCommand, DOCTOR_HELP } from "./commands/doctor.js";
 import { reviewCommand, REVIEW_HELP } from "./commands/review.js";
+import { browseCommand, BROWSE_HELP } from "./commands/browse.js";
 import { stubCommand } from "./commands/stub.js";
 
 const DESCRIPTION =
@@ -36,12 +37,12 @@ export async function main(): Promise<void> {
       auth: authCommand,
       doctor: async () => doctorCommand(),
       review: reviewCommand,
+      browse: browseCommand,
       // Stubs until each plan lands — see plans/<slug>.md.
       entries: stubCommand("entries", "entries-write"),
-      browse: stubCommand("browse", "browse"),
     },
     getCommandHelp: (command) =>
-      ({ auth: AUTH_HELP, doctor: DOCTOR_HELP, review: REVIEW_HELP }[command]),
+      ({ auth: AUTH_HELP, doctor: DOCTOR_HELP, review: REVIEW_HELP, browse: BROWSE_HELP }[command]),
   });
 }
 

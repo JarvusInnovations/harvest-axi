@@ -3,6 +3,7 @@ import { readConfig, type Credentials } from "../config.js";
 import { requireCredentials } from "../harvest/client.js";
 import { whoMe } from "../harvest/identity.js";
 import { paginateAll } from "../harvest/paginate.js";
+import { resolveEntity } from "../harvest/resolve.js";
 import type { QueryValue } from "../harvest/client.js";
 import { joinBlocks, renderHelp, renderList, renderObject } from "../output/index.js";
 import { parseRange, type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
@@ -52,19 +53,6 @@ interface ReviewFlags {
   rounded: boolean;
   limit: number;
   fields: string[];
-}
-
-/** A numeric scope value passes through as an id; a name is deferred to browse. */
-function scopeId(flag: string, value: string): number {
-  if (/^\d+$/.test(value)) return Number(value);
-  throw new AxiError(
-    `Scope by name ("${value}") isn't available yet — pass a numeric id to ${flag}`,
-    "VALIDATION_ERROR",
-    [
-      "Name resolution lands with the `browse` plan (clients/projects/tasks/users + a name→id cache)",
-      `For now: find the id via the Harvest UI or pass ${flag} <id>`,
-    ],
-  );
 }
 
 function parseReviewFlags(args: string[]): ReviewFlags {
@@ -168,27 +156,27 @@ export async function reviewCommand(args: string[]): Promise<string> {
     flags.team ? { defaultNamed: "this-week" } : { defaultSince: "7d" },
   );
 
-  // Resolve scope ids up front (synchronous) so a name-based scope fails fast,
-  // before any network call.
+  // Resolve scope names→ids via the browse cache (numeric ids pass through).
   const query: Record<string, QueryValue> = { from: range.from, to: range.to };
-  const userId = flags.user ? scopeId("--user", flags.user) : undefined;
-  if (flags.project) query.project_id = scopeId("--project", flags.project);
-  if (flags.client) query.client_id = scopeId("--client", flags.client);
-  if (flags.task) query.task_id = scopeId("--task", flags.task);
-
   const scopeParts: string[] = [];
+
+  const user = flags.user ? await resolveEntity("user", flags.user) : undefined;
+  const project = flags.project ? await resolveEntity("project", flags.project) : undefined;
+  const client = flags.client ? await resolveEntity("client", flags.client) : undefined;
+  const task = flags.task ? await resolveEntity("task", flags.task) : undefined;
+
   if (flags.team) {
     scopeParts.push("team");
-  } else if (userId !== undefined) {
-    query.user_id = userId;
-    scopeParts.push(`user #${userId}`);
+  } else if (user) {
+    query.user_id = user.id;
+    scopeParts.push(`user ${user.name}`);
   } else {
     query.user_id = await resolveSelfUserId(creds);
     scopeParts.push("you");
   }
-  if (query.project_id) scopeParts.push(`project #${query.project_id}`);
-  if (query.client_id) scopeParts.push(`client #${query.client_id}`);
-  if (query.task_id) scopeParts.push(`task #${query.task_id}`);
+  if (project) { query.project_id = project.id; scopeParts.push(`project ${project.name}`); }
+  if (client) { query.client_id = client.id; scopeParts.push(`client ${client.name}`); }
+  if (task) { query.task_id = task.id; scopeParts.push(`task ${task.name}`); }
 
   // Refinements: billable is client-side (Harvest's is_billed = invoiced, not billable);
   // unbilled/approval map to server filters.

@@ -79,10 +79,30 @@ describe("review", () => {
     expect(out).toContain("0 entries found");
   });
 
-  it("defers name-based scope to the browse plan", async () => {
-    await expect(reviewCommand(["--project", "Acme"])).rejects.toMatchObject({
-      code: "VALIDATION_ERROR",
-    });
+  it("resolves a name-based scope via the browse cache then queries", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    // 1) projects list for name resolution, 2) the time_entries query.
+    spy
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            projects: [{ id: 10, name: "Acme" }],
+            page: 1,
+            per_page: 2000,
+            total_pages: 1,
+            total_entries: 1,
+            links: { next: null },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(pageOf(ENTRIES.filter((e) => e.project.id === 10)));
+    // --team avoids a self-identity lookup so the two mocked fetches line up.
+    const out = await reviewCommand(["--project", "Acme", "--team", "--by", "task"]);
+    expect(out).toContain("project Acme");
+    // The time_entries call carried the resolved project_id=10.
+    const timeEntriesCall = spy.mock.calls.find(([url]) => String(url).includes("/time_entries"));
+    expect(String(timeEntriesCall?.[0])).toContain("project_id=10");
   });
 
   it("discloses when --team returns only one user's entries (non-manager token)", async () => {
