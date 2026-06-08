@@ -22,6 +22,8 @@ All take required `from` + `to` dates and paginate like other list endpoints (`r
 - **tasks:** `task_id`, `task_name`
 - **team:** `user_id`, `user_name`, `weekly_capacity` (seconds), `is_contractor`, `avatar_url`, `scheduled_hours?`
 
+> **Reports sum _rounded_ hours** (per the account's rounding settings), **not** raw `hours`. Verified live: `reports team --last-month` = 915.5h matched `review --team --last-month --rounded` exactly, while raw `review` reported 901.5h. A `reports` total therefore cross-checks against `review` only when `review` uses `--rounded`.
+
 ### Optional params
 
 - `include_fixed_fee` — include billable amounts for fixed-fee projects (off by default).
@@ -42,5 +44,5 @@ The Reports API returns **pre-aggregated** rows (one per entity) — cheap and m
 
 **Inherited** — see [`../principles.md`](../principles.md):
 
-- [Rollups over raw; detail on demand](../principles.md#rollups-over-raw-detail-on-demand) — Reports *is* the server-side rollup; surface its totals, point to `review` for entry-level detail.
+- [Rollups over raw; detail on demand](../principles.md#rollups-over-raw-detail-on-demand) — Reports _is_ the server-side rollup; surface its totals, point to `review` for entry-level detail.
 - [Translate errors; never leak raw API noise](../principles.md#translate-errors-never-leak-raw-api-noise) — the 365-day cap is enforced as a `VALIDATION_ERROR` before calling; 429 honors `Retry-After`.
