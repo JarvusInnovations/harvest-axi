@@ -14,6 +14,10 @@ export interface ProfileCache {
   user_id: number;
   user_name: string;
   account_name: string;
+  /** "Monday" | "Sunday" | "Saturday" — from /v2/company; informs week windows. */
+  week_start_day?: string;
+  /** true → account uses start/end timers; false → duration mode. */
+  wants_timestamp_timers?: boolean;
   cached_at: string;
 }
 

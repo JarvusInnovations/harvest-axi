@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [foundation]
 specs:
   - specs/commands/auth.md

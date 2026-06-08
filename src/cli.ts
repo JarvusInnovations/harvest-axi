@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAxiCli } from "axi-sdk-js";
 import { homeCommand } from "./commands/home.js";
+import { authCommand, AUTH_HELP } from "./commands/auth.js";
+import { doctorCommand, DOCTOR_HELP } from "./commands/doctor.js";
 import { stubCommand } from "./commands/stub.js";
 
 const DESCRIPTION =
@@ -30,13 +32,15 @@ export async function main(): Promise<void> {
     ...(process.env.HARVEST_AXI_DISABLE_HOOKS === "1" ? { hooks: false } : {}),
     home: async () => homeCommand(),
     commands: {
+      auth: authCommand,
+      doctor: async () => doctorCommand(),
       // Stubs until each plan lands — see plans/<slug>.md.
-      auth: stubCommand("auth", "auth-identity"),
-      doctor: stubCommand("doctor", "auth-identity"),
       review: stubCommand("review", "review"),
       entries: stubCommand("entries", "entries-write"),
       browse: stubCommand("browse", "browse"),
     },
+    getCommandHelp: (command) =>
+      ({ auth: AUTH_HELP, doctor: DOCTOR_HELP }[command]),
   });
 }
 
