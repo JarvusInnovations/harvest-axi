@@ -31,7 +31,6 @@ export async function main(): Promise<void> {
     description: DESCRIPTION,
     version: VERSION,
     topLevelHelp: TOP_HELP,
-    ...(process.env.HARVEST_AXI_DISABLE_HOOKS === "1" ? { hooks: false } : {}),
     home: async () => homeCommand(),
     commands: {
       auth: authCommand,
