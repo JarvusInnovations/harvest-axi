@@ -1,7 +1,9 @@
 ---
-status: planned
+status: in-progress
 depends: [review]
-specs: []
+specs:
+  - specs/api/reports.md
+  - specs/commands/reports.md
 issues: []
 ---
 
@@ -9,37 +11,40 @@ issues: []
 
 ## Scope
 
-**In:** higher-level analytics built on Harvest's [Reports API](https://help.getharvest.com/api-v2/reports-api/reports/time-reports/) — time totals by project / client / team / task over a period, billable-vs-non-billable rollups, and budget/uninvoiced views that the per-entry `review` rollup can't cheaply compute. **Out:** the per-entry period review (that's `review`).
+**In:** the `reports clients|projects|tasks|team` command — server-aggregated time totals **with billable dollar amounts** over a window, the dimension `review` can't cheaply produce. **Out:** per-entry review and flexible grouping (that's `review`); the spec settles the boundary.
 
-## Spec-first gate
+## Spec gate — SATISFIED
 
-This plan has **no specs yet**. Per the SpecOps spec-first rule, before implementation begins this plan must first land (as their own PR):
+The two specs are authored and committed:
 
-- `specs/api/reports.md` — the Reports API endpoints + response shapes + the 100-req/15-min rate limit.
-- `specs/commands/reports.md` — the `reports` command surface, default schemas, and how it differs from / complements `review`.
-
-Until those exist, `specs:` stays empty and this plan stays `planned`. The drift auditor only checks listed specs, so an empty list here is correct, not a gap.
+- `specs/api/reports.md` — endpoints, result fields, the 365-day span cap, the 100-req/15-min rate limit.
+- `specs/commands/reports.md` — command surface, per-axis schemas, and the explicit reports-vs-review boundary table.
 
 ## Implements
 
-(To be filled once the specs above are authored.)
+- `specs/api/reports.md` — the four `/v2/reports/time/*` endpoints (paginated `results`), 365-day client-side guard, `include_fixed_fee`.
+- `specs/commands/reports.md` — `reports <axis> [window] [--fixed-fee]`, structured totals header (hours + billable_amount + currency), per-axis bare-number schemas sorted by hours desc, suggestions across axes + down to `review`.
 
 ## Approach
 
-1. Author the two specs above (separate PR).
-2. `src/commands/reports.ts` consuming the Reports endpoints, reusing `parseRange` and the output helpers.
-3. Respect the tighter Reports rate limit — surface remaining-budget awareness and back off on 429.
+1. `src/commands/reports.ts` — dispatch on axis ∈ clients/projects/tasks/team; parse window via `parseRange` (default `this-month`); guard span ≤ 365 days (else `VALIDATION_ERROR`).
+2. `paginateAll(`reports/time/${axis}`, "results", { from, to, include_fixed_fee? })` to completion.
+3. Local totals: sum `total_hours`/`billable_hours`/`billable_amount`; capture `currency` (note if mixed). Render structured header + a `<axis>[N]{...}` table (bare numbers, sorted by hours desc); definitive empty state; suggestions.
+4. Reuse the shared client's 429→RATE_LIMITED translation (Retry-After) — no special handling beyond honoring it.
 
 ## Validation
 
-- [ ] `specs/api/reports.md` and `specs/commands/reports.md` authored and accepted (gate).
-- [ ] `reports` produces project/client/team time totals matching a `review` cross-check for the same window.
-- [ ] Reports-API 429s are honored (Retry-After) without leaking raw errors.
+- [x] `specs/api/reports.md` and `specs/commands/reports.md` authored and accepted (gate).
+- [ ] `reports projects` / `clients` / `tasks` / `team` return aggregated totals with billable amounts against the live account.
+- [ ] A `reports` total cross-checks against a `review` hours total for the same window/scope.
+- [ ] A window > 365 days is rejected with a `VALIDATION_ERROR` before any call.
+- [ ] Empty window → definitive empty state; structured numeric header (no quoted prose).
+- [ ] Reports-API 429s are honored (Retry-After) without leaking raw errors (shared client path).
 
 ## Risks / unknowns
 
-- **Reports rate limit (100 / 15 min)** — far tighter than standard; a chatty agent could exhaust it. Design for few, wide calls.
-- **Overlap with `review`** — keep the boundary crisp so the two don't become redundant; the specs must settle this.
+- **Reports rate limit (100 / 15 min)** — far tighter than standard; the command does few wide calls (one paginated sweep per invocation).
+- **Mixed currencies** — summing `billable_amount` across currencies is meaningless; detect >1 distinct currency and disclose rather than sum.
 
 ## Notes
 
