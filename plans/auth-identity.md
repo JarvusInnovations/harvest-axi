@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [foundation]
 specs:
   - specs/commands/auth.md
@@ -28,18 +28,24 @@ issues: []
 
 ## Validation
 
-- [ ] `harvest-axi auth setup --token X --account Y` against a real PAT stores config and prints the resolved account + user name.
-- [ ] Re-running `auth setup` with the same creds revalidates, reports existing identity, exit 0 (idempotent).
-- [ ] `auth setup` with no flags returns the PAT-minting instruction and exit 2 (no prompt, no hang).
-- [ ] `auth whoami` prints cached identity; `--refresh` re-fetches; unconfigured → definitive "not configured".
-- [ ] `auth logout` removes creds; second run is a no-op exit 0.
-- [ ] `doctor` reports all checks; exit 0 when healthy, 1 when token invalid.
-- [ ] `harvest-axi` (no args) configured → identity + review suggestions; unconfigured → setup suggestion.
+- [x] `harvest-axi auth setup --token X --account Y` against a real PAT stores config and prints the resolved account + user name. _(live: connected as Chris Alfano / Jarvus Innovations, account 192183)_
+- [x] Re-running `auth setup` with the same creds revalidates, reports existing identity, exit 0 (idempotent). _(unit-tested — not re-run live to avoid needing the token in-session)_
+- [x] `auth setup` with no flags returns the PAT-minting instruction and exit 2 (no prompt, no hang). _(live)_
+- [x] `auth whoami` prints cached identity; `--refresh` re-fetches; unconfigured → definitive "not configured". _(cached + unconfigured live; cache-vs-refresh unit-tested)_
+- [x] `auth logout` removes creds; second run is a no-op exit 0. _(no-op live; removal unit-tested — not run live to avoid wiping the user's fresh config)_
+- [x] `doctor` reports all checks; exit 0 when healthy, 1 when token invalid. _(healthy exit 0 live; failing exit 1 live via unconfigured)_
+- [x] `harvest-axi` (no args) configured → identity + review suggestions; unconfigured → setup suggestion. _(both live)_
 
 ## Risks / unknowns
 
-- **Multi-account discovery** — the Harvest API selects account via header; enumerating accounts a token can see may require the `id.getharvest.com` accounts endpoint, not `api.harvestapp.com`. Validate against the live token; if unavailable, require explicit `--account` and document where to find the id. Record the resolution in Notes.
+- **Multi-account discovery** — RESOLVED (see Notes): the `id.getharvest.com/api/v2/accounts` endpoint works with the PAT, so setup auto-selects a lone account and lists candidates otherwise.
 
 ## Notes
 
+- **Multi-account resolution works cleanly**: `GET https://id.getharvest.com/api/v2/accounts` (Bearer token, no account header) returns the accessible accounts; we filter to `product: "harvest"`, auto-select when there's one, and list `--account <id> (name)` candidates when there are several. Risk closed.
+- **Live account facts captured into `profile_cache`** (from `/v2/company`): `week_start_day = Monday` — confirms foundation's Monday week default is correct for this account (closes that foundation follow-up for now); `wants_timestamp_timers = false` → this account tracks in **duration mode**, so `entries log` should default to `--hours` rather than `--started/--ended`.
+- Idempotent re-run, logout removal, and whoami cache/refresh are verified by unit tests rather than live re-runs — re-running them against the live account would require the token in-session or would wipe the just-created config.
+
 ## Follow-ups
+
+- Deferred to [`entries-write`](entries-write.md) — use the cached `profile_cache.wants_timestamp_timers` to choose duration vs start/end mode for `entries log`/`edit`, instead of guessing.

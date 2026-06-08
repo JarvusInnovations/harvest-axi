@@ -23,10 +23,12 @@ issues: []
 1. `src/commands/entries.ts` + subdir. Reads: `today`/`yesterday` build a self `time_entries?from&to&user_id` call; `get <id>` fetches one entry, full notes, no truncation/suggestions (self-contained detail).
 2. Writes resolve `--project/--task/--user` via `resolveEntity`. `log` enforces required `--project`+`--task` and one of `--hours` / `--started`; omitting hours/ended → running entry. `edit` PATCHes only supplied fields. `delete` is idempotent (absent id → no-op exit 0). `start`/`stop` map to `/restart` & `/stop`, no-op when already in target state.
 3. 422 from Harvest (e.g. task not assigned to project) → `VALIDATION_ERROR` surfacing the rejected field + a `browse mine` hint.
+4. Read `profile_cache.wants_timestamp_timers` (cached at `auth setup`) to pick the account's mode — duration (`--hours`) vs start/end (`--started/--ended`) — and, when the wrong mode's flags are passed, fail with a `VALIDATION_ERROR` naming the mode this account uses (deferred from [`auth-identity`](auth-identity.md); this account is currently duration-mode).
 
 ## Validation
 
 - [ ] `entries log --project <id> --task <id> --hours 1.5 --notes "..."` creates an entry and returns its id + summary.
+- [ ] `entries log` honors the account's timer mode from `profile_cache.wants_timestamp_timers`, rejecting the wrong-mode flags with a clear message (deferred from [`auth-identity`](auth-identity.md)).
 - [ ] `entries log` without hours creates a running entry; `entries stop <id>` stops it; second `stop` is a no-op exit 0.
 - [ ] `entries edit <id> --notes "..."` changes only notes; other fields untouched.
 - [ ] `entries delete <id>` deletes; deleting an absent id is a no-op exit 0; a locked/approved entry → `VALIDATION_ERROR`.
