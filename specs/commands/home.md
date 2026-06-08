@@ -11,7 +11,11 @@ Per AXI "content first": running bare shows **live, actionable state**, not help
 ## Data
 
 - Identity (from config / `users/me` cache): the authenticated user's name + the account name.
-- Today's own entries: total hours today, count, and whether a timer is running (one `time_entries?from=today&to=today&user_id=me` call).
+- The user's recent own entries: **one** `time_entries?user_id=me&per_page=50` call (Harvest returns newest-first by `spent_date`). Everything below is derived from this single response:
+  - **active timer** — the entry with `is_running: true`, if any (its `hours` is elapsed-so-far).
+  - **today** — hours summed over entries whose `spent_date` is today, with count.
+  - **last entry** — the most recent entry's `spent_date`, rendered with a relative "(N days ago)".
+  - **recent** — the last 3 entries (date, project, task, hours).
 - Setup state when unconfigured (no token).
 
 ## Output (configured)
@@ -21,12 +25,26 @@ bin: ~/.local/bin/harvest-axi
 description: AXI CLI for Harvest time tracking — review, log, and edit time entries.
 account: Jarvus Innovations
 user: Chris Alfano
-today: 5.25h across 3 entries · timer running on "Acme Redesign / Development"
+active_timer: GTFS Pathways / T2: Project Management — 1.25h elapsed
+today: 5.25h across 3 entries
+last_entry: 2026-06-05 (3 days ago)
+recent[3]{spent_date,project,task,hours}:
+  2026-06-05,GTFS Pathways Development,T2: Project Management,2
+  2026-06-05,Non-billable Work,Business Development,1.5
+  2026-06-04,Non-billable Work,Internal Meetings,1.75
 help[3]:
   Run `harvest-axi review --since 7d` to review your last week
+  Run `harvest-axi entries today` to see today's entries, or `start`/`stop` a timer
   Run `harvest-axi review --team --this-week` to review the whole team
-  Run `harvest-axi entries today` to see today's entries, or `start` to begin a timer
 ```
+
+Rules:
+
+- `active_timer` is **omitted** when no timer is running (don't print an empty/false line).
+- `today` reads `nothing logged yet` when there are no entries dated today.
+- `last_entry` relative label: 0 days → `today`, 1 → `yesterday`, else `N days ago`. Omitted when the user has no entries at all.
+- `recent` shows up to 3; omitted when there are no entries.
+- Stays at **one** API call; on failure the live block is dropped and identity + suggestions still render.
 
 ## Output (unconfigured)
 
