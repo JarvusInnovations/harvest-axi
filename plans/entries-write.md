@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [auth-identity, browse]
 specs:
   - specs/commands/entries.md

@@ -7,7 +7,7 @@ import { authCommand, AUTH_HELP } from "./commands/auth.js";
 import { doctorCommand, DOCTOR_HELP } from "./commands/doctor.js";
 import { reviewCommand, REVIEW_HELP } from "./commands/review.js";
 import { browseCommand, BROWSE_HELP } from "./commands/browse.js";
-import { stubCommand } from "./commands/stub.js";
+import { entriesCommand, ENTRIES_HELP } from "./commands/entries.js";
 
 const DESCRIPTION =
   "AXI CLI for Harvest time tracking — review, log, and edit time entries.";
@@ -38,11 +38,16 @@ export async function main(): Promise<void> {
       doctor: async () => doctorCommand(),
       review: reviewCommand,
       browse: browseCommand,
-      // Stubs until each plan lands — see plans/<slug>.md.
-      entries: stubCommand("entries", "entries-write"),
+      entries: entriesCommand,
     },
     getCommandHelp: (command) =>
-      ({ auth: AUTH_HELP, doctor: DOCTOR_HELP, review: REVIEW_HELP, browse: BROWSE_HELP }[command]),
+      ({
+        auth: AUTH_HELP,
+        doctor: DOCTOR_HELP,
+        review: REVIEW_HELP,
+        browse: BROWSE_HELP,
+        entries: ENTRIES_HELP,
+      }[command]),
   });
 }
 
