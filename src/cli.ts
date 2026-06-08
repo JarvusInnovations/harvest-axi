@@ -5,6 +5,7 @@ import { runAxiCli } from "axi-sdk-js";
 import { homeCommand } from "./commands/home.js";
 import { authCommand, AUTH_HELP } from "./commands/auth.js";
 import { doctorCommand, DOCTOR_HELP } from "./commands/doctor.js";
+import { reviewCommand, REVIEW_HELP } from "./commands/review.js";
 import { stubCommand } from "./commands/stub.js";
 
 const DESCRIPTION =
@@ -34,13 +35,13 @@ export async function main(): Promise<void> {
     commands: {
       auth: authCommand,
       doctor: async () => doctorCommand(),
+      review: reviewCommand,
       // Stubs until each plan lands — see plans/<slug>.md.
-      review: stubCommand("review", "review"),
       entries: stubCommand("entries", "entries-write"),
       browse: stubCommand("browse", "browse"),
     },
     getCommandHelp: (command) =>
-      ({ auth: AUTH_HELP, doctor: DOCTOR_HELP }[command]),
+      ({ auth: AUTH_HELP, doctor: DOCTOR_HELP, review: REVIEW_HELP }[command]),
   });
 }
 

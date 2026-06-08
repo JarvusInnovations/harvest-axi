@@ -32,7 +32,11 @@ Name→id resolution for `--user/--project/--client/--task` uses the [browse](..
 ```
 range: 2026-06-01 → 2026-06-07 (this-week)
 scope: team (12 users)            # or: project "Acme Redesign" / client "Acme" / you
-totals: 187.50h  (162.00h billable, 25.50h non-billable)  · 312 entries · complete: true
+total_hours: 187.5
+billable_hours: 162
+non_billable_hours: 25.5
+entries: 312
+complete: true
 by_user[12]{user,hours,billable,entries}:
   Chris Alfano,38.25,38.25,41
   ...
@@ -41,10 +45,10 @@ help[2]:
   Run `harvest-axi review --by none` to see the raw entries
 ```
 
-- **`totals:`** is always present — the answer to "how much" before any grouping.
-- **`complete: true`** confirms full pagination; if a hard safety cap is ever hit, it flips to `complete: false (capped at N)` with a narrowing hint.
-- Group rows are sorted by hours descending.
-- Billable split is always shown in totals; per-group billable column appears when meaningful.
+- **The totals block is always present** — the answer to "how much" before any grouping — emitted as **structured numeric fields** (`total_hours`, `billable_hours`, `non_billable_hours`, `entries`), not a prose string, so an agent reads them without parsing and TOON renders them bare.
+- **`complete: true`** confirms full pagination; if the hard safety cap is hit, `complete: false` is emitted alongside `capped_at_pages: N` and a narrowing hint. `complete` reflects **pagination only** — a client-side `--billable`/`--non-billable` filter reduces the row count without making the read partial.
+- Group rows are sorted by hours descending; hours/billable are bare numbers rounded to 2 decimals.
+- A `note:` field appears when `--team` was requested but the token returned only one user's data (manager/admin role needed); a `running:` field appears when any entry in the window has a live timer.
 
 ## Details
 

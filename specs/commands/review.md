@@ -33,7 +33,7 @@ grouping & detail:
 
 ## Output
 
-Per [period-review](../behaviors/period-review.md#output-shape): `range:` + `scope:` + `totals:` header, then a `by_<axis>[N]{...}` rollup table sorted by hours desc, then suggestions. `complete:` reflects full pagination. `--by none` emits an `entries[N]{id,spent_date,user,project,task,hours}` table with the same range/totals header.
+Per [period-review](../behaviors/period-review.md#output-shape): a header of `range:` + `scope:` + structured totals (`total_hours`, `billable_hours`, `non_billable_hours`, `entries`, `complete`), then a `by_<axis>[N]{...}` rollup table sorted by hours desc, then suggestions. `complete:` reflects full pagination. `--by none` emits an `entries[N]{id,spent_date,user,project,task,hours}` table with the same header.
 
 ## Default schemas
 
