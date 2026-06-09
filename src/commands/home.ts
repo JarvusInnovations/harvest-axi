@@ -32,8 +32,9 @@ export async function homeCommand(): Promise<Record<string, unknown>> {
 
   output.help = [
     "Run `harvest-axi review --since 7d` to review your last week",
-    "Run `harvest-axi entries today` to see today's entries, or `start`/`stop` a timer",
     "Run `harvest-axi review --team --this-week` to review the whole team",
+    "Run `harvest-axi entries today` to see today's entries, or `start`/`stop` a timer",
+    "Run `harvest-axi --help` to see the full command list, or `harvest-axi <command> --help` for usage on any command",
   ];
   return output;
 }
