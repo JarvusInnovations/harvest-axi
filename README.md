@@ -23,6 +23,7 @@ Mint a Personal Access Token at <https://id.getharvest.com/developers>. The acco
 | `harvest-axi browse clients\|projects\|tasks\|mine` | Reference data + what you can log against |
 | `harvest-axi entries today\|get\|log\|edit\|delete\|start\|stop` | Read + edit your time entries |
 | `harvest-axi auth\|doctor` | Credentials + health |
+| `harvest-axi hook install\|status\|uninstall` | Manage the SessionStart ambient hook |
 
 ```sh
 harvest-axi review --team --this-week
@@ -36,7 +37,7 @@ Run `harvest-axi <command> --help` for any command's full flag reference.
 
 `harvest-axi` integrates into your agent's session so state is visible before you act. You only need **one** of these:
 
-1. **SessionStart hook (recommended)** — running the installed binary registers a hook that injects the live home view (today's hours, running timer, review suggestions) at the start of every session. Idempotent; repairs its own path on reinstall. Disable with `HARVEST_AXI_DISABLE_HOOKS=1`.
+1. **SessionStart hook (recommended)** — run `harvest-axi hook install` (or just `harvest-axi auth setup`, which installs it too) to register a hook that injects the live home view (today's hours, active timer, last entry, review suggestions) at the start of every session. `harvest-axi hook status` shows it; `harvest-axi hook uninstall` removes it. Idempotent and self-repairing; disable everywhere with `HARVEST_AXI_DISABLE_HOOKS=1`.
 2. **Installable skill** — a static [`SKILL.md`](.agents/skills/harvest-axi/SKILL.md) the agent loads on demand (no per-session cost, broader agent support). It carries the command guidance but not live state.
 
 The hook gives you live data on every session; the skill is lower overhead and works anywhere. They're complementary — install whichever fits, or both.

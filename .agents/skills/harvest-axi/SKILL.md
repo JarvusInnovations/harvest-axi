@@ -22,7 +22,7 @@ If `harvest-axi` is on PATH, use it directly; otherwise prefix examples with `np
 harvest-axi auth setup --token <personal-access-token>
 ```
 
-Mint a token at <https://id.getharvest.com/developers>. The account id is auto-selected when your token sees exactly one Harvest account. Verify with `harvest-axi doctor`.
+Mint a token at <https://id.getharvest.com/developers>. The account id is auto-selected when your token sees exactly one Harvest account. Verify with `harvest-axi doctor`. To load the home view at session start, run `harvest-axi hook install` (or rely on `auth setup`, which installs it too); manage it with `harvest-axi hook status|uninstall`.
 
 ## Review — the headline
 
