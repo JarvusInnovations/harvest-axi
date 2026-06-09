@@ -37,7 +37,7 @@ function configure() {
 describe("home", () => {
   it("prompts setup when unconfigured", async () => {
     const out = await homeCommand();
-    expect(out.setup).toContain("no Harvest credentials");
+    expect(out).toContain("no Harvest credentials");
   });
 
   it("surfaces an active timer, today summary, last entry, and recent 3 — in one API call", async () => {
@@ -53,11 +53,18 @@ describe("home", () => {
     );
     const out = await homeCommand();
     expect(spy).toHaveBeenCalledTimes(1); // one API call
-    expect(out.active_timer).toContain("GTFS / PM");
-    expect(out.active_timer).toContain("0.5h elapsed");
-    expect(out.today).toBe("2.5h across 2 entries"); // 0.5 + 2, both today
-    expect(out.last_entry).toContain("(today)");
-    expect((out.recent as unknown[]).length).toBe(3);
+    expect(out).toContain("active_timer: GTFS / PM — 0.5h elapsed");
+    expect(out).toContain("today: 2.5h across 2 entries"); // 0.5 + 2, both today
+    expect(out).toMatch(/last_entry: .*\(today\)/);
+    expect(out).toContain("recent[3]{spent_date,project,task,hours}:");
+  });
+
+  it("renders the help block multi-line ending with the --help discovery line", async () => {
+    configure();
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(entriesPage([]));
+    const out = await homeCommand();
+    expect(out).toMatch(/help\[\d\]:\n {2}Run/); // multi-line block, not inline
+    expect(out).toContain("Run `harvest-axi --help` to see the full command list");
   });
 
   it("omits active_timer when nothing is running", async () => {
@@ -66,17 +73,17 @@ describe("home", () => {
       entriesPage([{ id: 1, spent_date: "2026-06-01", hours: 1, is_running: false, project: { name: "Acme" }, task: { name: "Mtg" } }]),
     );
     const out = await homeCommand();
-    expect(out.active_timer).toBeUndefined();
-    expect(out.today).toBe("nothing logged yet"); // 2026-06-01 isn't today
-    expect(out.last_entry).toContain("2026-06-01");
+    expect(out).not.toContain("active_timer:");
+    expect(out).toContain("today: nothing logged yet"); // 2026-06-01 isn't today
+    expect(out).toContain("last_entry: 2026-06-01");
   });
 
   it("degrades gracefully when the live call fails", async () => {
     configure();
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("", { status: 500 }));
     const out = await homeCommand();
-    expect(out.account).toBe("Jarvus"); // identity still rendered
-    expect(out.recent).toBeUndefined();
-    expect(out.help).toBeTruthy();
+    expect(out).toContain("account: Jarvus"); // identity still rendered
+    expect(out).not.toContain("recent[");
+    expect(out).toContain("help[");
   });
 });

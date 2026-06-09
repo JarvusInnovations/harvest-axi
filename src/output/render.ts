@@ -27,10 +27,16 @@ export function renderObject(value: Record<string, unknown>): string {
   return encode(value);
 }
 
-/** Render a help array. Empty help renders to an empty string. */
+/**
+ * Render a help array as a multi-line `help[N]:` block — the canonical AXI form
+ * used by the first-party chrome-devtools-axi and slack-axi. We format manually
+ * because `encode()` inlines primitive arrays (`help[N]: a,b,c`); the multi-line
+ * block is the readable standard (help is read as guidance, not decoded back).
+ * Empty help renders to an empty string.
+ */
 export function renderHelp(suggestions: string[]): string {
   if (suggestions.length === 0) return "";
-  return encode({ help: suggestions });
+  return `help[${suggestions.length}]:\n${suggestions.map((s) => `  ${s}`).join("\n")}`;
 }
 
 /** Join rendered blocks with newlines, dropping empty ones. */

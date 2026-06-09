@@ -39,11 +39,13 @@ help[4]:
   Run `harvest-axi --help` to see the full command list, or `harvest-axi <command> --help` for usage on any command
 ```
 
-> Help renders as a single inline TOON array (`help[N]: …,…`) — the SDK's TOON
-> object encoder always inlines primitive arrays (no width option). This matches
-> gws-axi and is the token-efficient, round-trip-decodable form; the multi-line
-> block shown above is illustrative. The **last** item is always the standard
-> `--help` discovery line (gws-axi/slack-axi best practice).
+> Help renders as a **multi-line `help[N]:` block** (one indented line per item),
+> the canonical AXI form used by the first-party chrome-devtools-axi and by
+> slack-axi. Both depend on `axi-sdk-js` yet hand-render help, because `encode()`
+> inlines primitive arrays (`help[N]: a,b,c`); harvest-axi's `renderHelp` does the
+> same manual formatting. Help is read as guidance text, not decoded back, so the
+> display-oriented block is preferred over the strictly-decodable inline form. The
+> **last** item is always the standard `--help` discovery line.
 
 Rules:
 
