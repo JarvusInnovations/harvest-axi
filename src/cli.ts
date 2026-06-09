@@ -9,6 +9,7 @@ import { reviewCommand, REVIEW_HELP } from "./commands/review.js";
 import { browseCommand, BROWSE_HELP } from "./commands/browse.js";
 import { entriesCommand, ENTRIES_HELP } from "./commands/entries.js";
 import { reportsCommand, REPORTS_HELP } from "./commands/reports.js";
+import { hookCommand, HOOK_HELP } from "./commands/hook.js";
 
 const DESCRIPTION =
   "AXI CLI for Harvest time tracking — review, log, and edit time entries.";
@@ -16,8 +17,8 @@ const DESCRIPTION =
 const VERSION = readPackageVersion();
 
 export const TOP_HELP = `usage: harvest-axi [command] [args] [flags]
-commands[7]:
-  (none)=home, auth, doctor, review, entries, browse, reports
+commands[8]:
+  (none)=home, auth, doctor, review, entries, browse, reports, hook
 flags[2]:
   --help, -v/-V/--version
 examples:
@@ -40,6 +41,7 @@ export async function main(): Promise<void> {
       browse: browseCommand,
       entries: entriesCommand,
       reports: reportsCommand,
+      hook: hookCommand,
     },
     getCommandHelp: (command) =>
       ({
@@ -49,6 +51,7 @@ export async function main(): Promise<void> {
         browse: BROWSE_HELP,
         entries: ENTRIES_HELP,
         reports: REPORTS_HELP,
+        hook: HOOK_HELP,
       }[command]),
   });
 }

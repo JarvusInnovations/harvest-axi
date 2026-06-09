@@ -32,11 +32,20 @@ recent[3]{spent_date,project,task,hours}:
   2026-06-05,GTFS Pathways Development,T2: Project Management,2
   2026-06-05,Non-billable Work,Business Development,1.5
   2026-06-04,Non-billable Work,Internal Meetings,1.75
-help[3]:
+help[4]:
   Run `harvest-axi review --since 7d` to review your last week
-  Run `harvest-axi entries today` to see today's entries, or `start`/`stop` a timer
   Run `harvest-axi review --team --this-week` to review the whole team
+  Run `harvest-axi entries today` to see today's entries, or `start`/`stop` a timer
+  Run `harvest-axi --help` to see the full command list, or `harvest-axi <command> --help` for usage on any command
 ```
+
+> Help renders as a **multi-line `help[N]:` block** (one indented line per item),
+> the canonical AXI form used by the first-party chrome-devtools-axi and by
+> slack-axi. Both depend on `axi-sdk-js` yet hand-render help, because `encode()`
+> inlines primitive arrays (`help[N]: a,b,c`); harvest-axi's `renderHelp` does the
+> same manual formatting. Help is read as guidance text, not decoded back, so the
+> display-oriented block is preferred over the strictly-decodable inline form. The
+> **last** item is always the standard `--help` discovery line.
 
 Rules:
 

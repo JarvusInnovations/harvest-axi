@@ -1,41 +1,46 @@
 import { isConfigured, readConfig } from "../config.js";
 import { harvestRequest } from "../harvest/client.js";
+import { joinBlocks, renderHelp, renderList, renderObject } from "../output/index.js";
 
 /**
  * No-args home view (also the SessionStart hook payload). Per "content first":
  * identity + recency signals (active timer, today, last entry, recent 3) +
  * review-leaning suggestions. Token-budget discipline: ONE live API call (the
- * user's 50 newest entries), from which every live field is derived; the live
- * block degrades gracefully on failure. Returns a plain object — the SDK merges
- * the bin/description header and TOON-encodes it (the `recent` array → a table).
+ * user's 50 newest entries), from which every live field is derived.
+ *
+ * Returns a pre-composed string (not an object) so the help block renders
+ * multi-line — the canonical AXI form (chrome-devtools-axi / slack-axi). The SDK
+ * prepends the bin/description header to a string home result.
  */
-export async function homeCommand(): Promise<Record<string, unknown>> {
+export async function homeCommand(): Promise<string> {
   if (!isConfigured()) {
-    return {
-      setup: "no Harvest credentials configured",
-      help: [
+    return joinBlocks(
+      renderObject({ setup: "no Harvest credentials configured" }),
+      renderHelp([
         "Run `harvest-axi auth setup --token <pat> --account <id>` to connect your Harvest account",
         "Create a Personal Access Token at https://id.getharvest.com/developers",
-      ],
-    };
+      ]),
+    );
   }
 
   const cfg = readConfig();
-  const output: Record<string, unknown> = {};
+  const fields: Record<string, unknown> = {};
   if (cfg.profile_cache) {
-    output.account = cfg.profile_cache.account_name;
-    output.user = cfg.profile_cache.user_name;
+    fields.account = cfg.profile_cache.account_name;
+    fields.user = cfg.profile_cache.user_name;
   }
 
-  // Live recency block (insertion order = output order).
-  await applyRecency(output, cfg.default_user_id);
+  // ONE API call → active_timer?/today/last_entry fields + the recent table.
+  const recent = await applyRecency(fields, cfg.default_user_id);
 
-  output.help = [
+  const help = renderHelp([
     "Run `harvest-axi review --since 7d` to review your last week",
-    "Run `harvest-axi entries today` to see today's entries, or `start`/`stop` a timer",
     "Run `harvest-axi review --team --this-week` to review the whole team",
-  ];
-  return output;
+    "Run `harvest-axi entries today` to see today's entries, or `start`/`stop` a timer",
+    "Run `harvest-axi --help` to see the full command list, or `harvest-axi <command> --help` for usage on any command",
+  ]);
+
+  return joinBlocks(renderObject(fields), recent, help);
 }
 
 function round2(h: number): number {
@@ -70,12 +75,15 @@ function projTask(e: Record<string, unknown>): string {
 }
 
 /**
- * One API call → mutate `output` with active_timer?/today/last_entry?/recent.
- * On failure (or no user id) leaves `output` untouched so the home view still
- * renders identity + suggestions.
+ * One API call → set active_timer?/today/last_entry on `fields` and return the
+ * rendered `recent` table (or "" when none / on failure, so the home view still
+ * shows identity + suggestions).
  */
-async function applyRecency(output: Record<string, unknown>, userId: number | undefined): Promise<void> {
-  if (!userId) return;
+async function applyRecency(
+  fields: Record<string, unknown>,
+  userId: number | undefined,
+): Promise<string> {
+  if (!userId) return "";
   let entries: Array<Record<string, unknown>>;
   try {
     const res = await harvestRequest<{ time_entries?: Array<Record<string, unknown>> }>(
@@ -84,34 +92,36 @@ async function applyRecency(output: Record<string, unknown>, userId: number | un
     );
     entries = res.time_entries ?? [];
   } catch {
-    return;
+    return "";
   }
 
   if (entries.length === 0) {
-    output.today = "nothing logged yet";
-    return;
+    fields.today = "nothing logged yet";
+    return "";
   }
 
-  // Active timer (omitted entirely when none is running).
   const running = entries.find((e) => e.is_running === true);
   if (running) {
-    output.active_timer = `${projTask(running)} — ${round2(hoursOf(running))}h elapsed`;
+    fields.active_timer = `${projTask(running)} — ${round2(hoursOf(running))}h elapsed`;
   }
 
-  // Today summary.
   const today = todayStr();
   const todays = entries.filter((e) => e.spent_date === today);
-  output.today =
+  fields.today =
     todays.length > 0
       ? `${round2(todays.reduce((s, e) => s + hoursOf(e), 0))}h across ${todays.length} ${todays.length === 1 ? "entry" : "entries"}`
       : "nothing logged yet";
 
-  // Recency.
-  output.last_entry = daysAgoLabel(String(entries[0].spent_date ?? ""));
-  output.recent = entries.slice(0, 3).map((e) => ({
-    spent_date: e.spent_date,
-    project: (e.project as { name?: string })?.name ?? "",
-    task: (e.task as { name?: string })?.name ?? "",
-    hours: e.hours,
-  }));
+  fields.last_entry = daysAgoLabel(String(entries[0].spent_date ?? ""));
+
+  return renderList(
+    "recent",
+    entries.slice(0, 3),
+    [
+      { name: "spent_date", extract: (i) => i.spent_date },
+      { name: "project", extract: (i) => (i.project as { name?: string })?.name ?? "" },
+      { name: "task", extract: (i) => (i.task as { name?: string })?.name ?? "" },
+      { name: "hours", extract: (i) => i.hours },
+    ],
+  );
 }
