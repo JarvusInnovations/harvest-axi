@@ -12,8 +12,9 @@ specs/
 ├── api/                 # the Harvest API v2 contract we consume
 │   ├── conventions.md    # auth headers, base URL, pagination, rate limits, dates
 │   ├── time-entries.md   # the time_entries endpoints (list/create/update/delete/timer)
-│   ├── reports.md        # the time reports endpoints (server-aggregated totals + $)
-│   └── invoices.md       # the invoices endpoints (list/get + payments/messages reads; draft-only writes)
+│   ├── reports.md        # the reports endpoints (time totals + $, uninvoiced report)
+│   ├── invoices.md       # the invoices endpoints (list/get + payments/messages reads; draft-only writes)
+│   └── reference-data.md # clients/projects/tasks/users list+get, project task assignments
 ├── behaviors/           # cross-cutting rules spanning multiple commands
 │   ├── date-ranges.md    # human time in, year-stamped range out
 │   └── period-review.md  # the headline: review entries over a period × scope
@@ -22,8 +23,8 @@ specs/
     ├── auth.md           # PAT setup, doctor, whoami
     ├── review.md         # period-based review (the centerpiece)
     ├── entries.md        # entry read (get) + write (create/edit/delete/timer)
-    ├── browse.md         # clients, projects, my assignments, tasks
-    ├── reports.md        # server-aggregated totals + billable $ (clients/projects/tasks/team)
+    ├── browse.md         # clients, projects, tasks, users (list + detail), my assignments
+    ├── reports.md        # time totals + billable $ (clients/projects/tasks/team) + uninvoiced
     └── invoices.md       # list/review + full detail; draft workbench (create/edit/delete drafts)
 ```
 

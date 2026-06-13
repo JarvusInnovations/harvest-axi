@@ -19,7 +19,9 @@ Use **`review`** for the personal/daily loop, flexible grouping, and entry drill
 
 ## Invocation
 
-`harvest-axi reports <axis> [window] [flags]` — axis ∈ `clients | projects | tasks | team`.
+`harvest-axi reports <axis> [window] [flags]` — axis ∈ `clients | projects | tasks | team | uninvoiced`.
+
+The first four are **time** reports (aggregated tracked hours + billable $). `uninvoiced` is a distinct report (see below) — tracked work **not yet invoiced**.
 
 ## Flags
 
@@ -56,9 +58,21 @@ help[2]:
 - `billable_amount` sums assume a single account currency; if rows report mixed currencies, the header notes it rather than summing across them.
 - A window > 365 days → `VALIDATION_ERROR` (narrow it). Empty result → definitive `0 ... in <range>`.
 
+## reports uninvoiced
+
+`harvest-axi reports uninvoiced --from <date> --to <date>` — per-project tracked work not yet on an invoice. Implements the [uninvoiced report](../api/reports.md#uninvoiced-report).
+
+- **`--from`/`--to` (or a named window/`--since`) are required** — unlike the time axes, there is no `this-month` default (the API requires an explicit range). A bare `reports uninvoiced` → `VALIDATION_ERROR` naming the missing window.
+- Same **365-day** cap (reuses the time-report guard).
+- Header: `range`, `report: uninvoiced`, `uninvoiced_amount` total (+ currency; mixed → noted), `rows`, `complete`.
+- Rows sorted by `uninvoiced_amount` desc: `uninvoiced[N]{project,client,hours,uninvoiced_hours,expenses,amount}`.
+- Suggestions point to `invoices create --from-tracked --project "<name>"` (turn the uninvoiced work into a draft) and `review --project "<name>" --unbilled` (the entries behind a row).
+
+This is the natural bridge between `review`/`reports` (what was tracked) and `invoices` (what was billed): it answers "what's billable but not yet invoiced."
+
 ## Suggestions
 
-Point across axes (`reports tasks`/`reports team`) and down to `review --project "<name>" --by none` for the entries behind a row.
+Point across axes (`reports tasks`/`reports team`), to `reports uninvoiced` for unbilled work, and down to `review --project "<name>" --by none` for the entries behind a row.
 
 ## Principles
 
