@@ -1,4 +1,4 @@
-# Command: browse (clients, projects, tasks, users, assignments)
+# Command: browse (clients, projects, tasks, users, contacts, assignments)
 
 Read-only reference data. Exists to (a) give the agent valid ids/names for `review` and `entries` scoping, (b) back the name→id **resolution cache** those commands use, and (c) let an agent inspect any single client/project/task/user in full. Implements [api/reference-data](../api/reference-data.md). Manager/Admin gated (except the self paths).
 
@@ -8,6 +8,7 @@ Read-only reference data. Exists to (a) give the agent valid ids/names for `revi
 - `browse projects` — `GET /v2/projects`. `projects[N]{id,name,client,code,active}`. Filters: `--client <id|name>`, `--all`.
 - `browse tasks` — `GET /v2/tasks`. `tasks[N]{id,name,billable_default,active}`.
 - `browse users` — `GET /v2/users`. `users[N]{id,name,email,roles,active}`. Completes the set so `--user` resolution has a first-class list (manager-gated like the others).
+- `browse contacts` — `GET /v2/contacts`. `contacts[N]{id,name,client,email,phone}`. Filter: `--client <id|name>` (→ `client_id`). The people at a client (invoice recipients / points of contact).
 - `browse mine` — **my project assignments** via `GET /v2/users/me/project_assignments`. Shows the projects I can log to and, per project, the tasks assigned. `assignments[N]{project,client,tasks}` where `tasks` is a compact count/list. This is the authoritative source for "what *can I* log against" and what `entries log` validates against.
 
 ### Common list flags
@@ -18,9 +19,12 @@ Read-only reference data. Exists to (a) give the agent valid ids/names for `revi
 
 ## Detail views — `browse <entity> <id|name>`
 
-A trailing positional turns any list subcommand into a single-entity **detail view**: `browse clients <id|name>`, `browse projects <id|name>`, `browse tasks <id|name>`, `browse users <id|name>`. The arg resolves through the same cache as scope flags (numeric id passes through; a name resolves case-insensitively, ambiguity → candidates). Detail is a self-contained record — full fields, no truncation, no row cap (per [AXI detail-view principle](../principles.md)).
+A trailing positional turns any list subcommand into a single-entity **detail view**: `browse clients <id|name>`, `browse projects <id|name>`, `browse tasks <id|name>`, `browse users <id|name>`, `browse contacts <id>`. The arg resolves through the same cache as scope flags (numeric id passes through; a name resolves case-insensitively, ambiguity → candidates). Detail is a self-contained record — full fields, no truncation, no row cap (per [AXI detail-view principle](../principles.md)).
 
-- **client** — `id · name · active · currency · address · statement_key · created_at · updated_at`.
+- **client** — the full client record **plus its contacts**, in stacked blocks:
+  - `client` — `id · name · active · currency · address · statement_key · created_at · updated_at`.
+  - `contacts[N]{name,title,email,phone}` — from `GET /v2/contacts?client_id={id}`, so the invoice recipients show alongside the client without a second lookup.
+- **contact** — `id · name · title · client · email · phone_office · phone_mobile · invoice_recipient_status`. (`browse contacts <id>` is keyed by contact id — names aren't cached/resolved for contacts, so this detail takes a numeric id.)
 - **task** — `id · name · billable_by_default · default_hourly_rate · is_default · active · created_at · updated_at`.
 - **user** — `id · name · email · telephone · timezone · access_roles · roles · is_contractor · weekly_capacity (hours) · default_hourly_rate · cost_rate · active`. `weekly_capacity` is rendered in hours (API gives seconds). `browse users me` (or no arg shorthand) resolves the authenticated user via `/v2/users/me`.
 - **project** — the full project record **plus its task assignments**, in stacked blocks:
