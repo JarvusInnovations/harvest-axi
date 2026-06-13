@@ -19,25 +19,27 @@ import {
 import { parseRange } from "../time/ranges.js";
 
 export const BROWSE_HELP = `usage: harvest-axi browse <subcommand> [<id|name>] [flags]
-list subcommands[5]:
+list subcommands[6]:
   clients     clients on the account
   projects    projects (--client <id|name> to filter)
   tasks       task types
   users       people on the account
+  contacts    client contacts (--client <id|name> to filter)
   mine        your project assignments (what you can log against, + tasks)
 detail (one entity, full record):
   browse clients <id|name>     browse projects <id|name>
   browse tasks <id|name>       browse users <id|name>|me
-  (projects detail folds in the project's task assignments)
+  browse contacts <id>         (contacts are id-keyed, not name-resolved)
+  (clients detail folds in contacts; projects detail folds in task assignments)
 flags:
   --all        include archived/inactive (default: active only)
-  --client <id|name>   (projects only) filter to one client
+  --client <id|name>   (projects, contacts) filter to one client
   --since <dur>        only entities updated within 7d | 2w | 1m
   --refresh    bypass the name-resolution cache
 examples:
   harvest-axi browse clients
   harvest-axi browse projects --client "Caltrans"
-  harvest-axi browse projects "API Test"
+  harvest-axi browse contacts --client "Caltrans"
   harvest-axi browse users me
 notes:
   Names from these lists resolve in review/entries scope flags (e.g.
@@ -110,6 +112,8 @@ export async function browseCommand(args: string[]): Promise<string> {
           ]);
     case "users":
       return id ? userDetail(id, flags) : usersList(flags);
+    case "contacts":
+      return id ? contactDetail(id) : contactsList(flags);
     case "mine":
       return browseMine();
     default:
@@ -147,6 +151,59 @@ async function usersList(flags: BrowseFlags): Promise<string> {
     ],
     sinceQuery(flags.since),
   );
+}
+
+function contactName(c: Record<string, unknown>): string {
+  const name = [c.first_name, c.last_name].filter(Boolean).join(" ");
+  return name || (c.email as string) || `contact ${c.id}`;
+}
+
+function contactPhone(c: Record<string, unknown>): string {
+  return (c.phone_office as string) || (c.phone_mobile as string) || "—";
+}
+
+async function contactsList(flags: BrowseFlags): Promise<string> {
+  const query: Record<string, QueryValue> = { ...sinceQuery(flags.since) };
+  const scope: string[] = [];
+  if (flags.client) {
+    const c = await resolveEntity("client", flags.client, { refresh: flags.refresh });
+    query.client_id = c.id;
+    scope.push(`client ${c.name}`);
+  }
+  const res = await paginateAll<Record<string, unknown>>("contacts", "contacts", query);
+  return renderListResponse({
+    summary: { total: res.items.length, ...(scope.length ? { scope: scope.join(" · ") } : {}) },
+    name: "contacts",
+    items: res.items,
+    schema: [
+      field("id"),
+      computed("name", (i) => contactName(i)),
+      pluck("client", "name", "client"),
+      field("email"),
+      computed("phone", (i) => contactPhone(i)),
+    ],
+    suggestions: res.items.length > 0 ? ["Run `harvest-axi browse contacts <id>` for one contact's full record"] : [],
+    emptyMessage: `0 contacts found${scope.length ? ` for ${scope.join(" · ")}` : ""}`,
+  });
+}
+
+async function contactDetail(value: string): Promise<string> {
+  if (!/^\d+$/.test(value)) {
+    throw new AxiError(`browse contacts takes a numeric contact id, got "${value}"`, "VALIDATION_ERROR", [
+      "Contacts aren't name-resolved — run `harvest-axi browse contacts --client \"<name>\"` to find ids",
+    ]);
+  }
+  const c = await harvestRequest<Record<string, unknown>>(`contacts/${value}`);
+  return renderObject({
+    id: c.id,
+    name: contactName(c),
+    title: c.title || "—",
+    client: (c.client as { name?: string } | undefined)?.name ?? "—",
+    email: c.email ?? "—",
+    phone_office: c.phone_office || "—",
+    phone_mobile: c.phone_mobile || "—",
+    invoice_recipient_status: c.invoice_recipient_status ?? "—",
+  });
 }
 
 async function browseList(
@@ -195,16 +252,35 @@ async function resolveId(kind: EntityKind, value: string, flags: BrowseFlags): P
 async function clientDetail(value: string, flags: BrowseFlags): Promise<string> {
   const id = await resolveId("client", value, flags);
   const c = await harvestRequest<Record<string, unknown>>(`clients/${id}`);
-  return renderObject({
-    id: c.id,
-    name: c.name,
-    active: c.is_active,
-    currency: c.currency ?? "—",
-    address: c.address ?? "—",
-    statement_key: c.statement_key ?? "—",
-    created_at: c.created_at,
-    updated_at: c.updated_at,
-  });
+  const contacts = await paginateAll<Record<string, unknown>>("contacts", "contacts", { client_id: id });
+
+  const blocks = [
+    renderObject({
+      client: {
+        id: c.id,
+        name: c.name,
+        active: c.is_active,
+        currency: c.currency ?? "—",
+        address: c.address || "—",
+        statement_key: c.statement_key ?? "—",
+        created_at: c.created_at,
+        updated_at: c.updated_at,
+      },
+    }),
+  ];
+  if (contacts.items.length > 0) {
+    blocks.push(
+      renderList("contacts", contacts.items, [
+        { name: "name", extract: (i) => contactName(i) },
+        { name: "title", extract: (i) => i.title || "—" },
+        { name: "email", extract: (i) => i.email ?? "—" },
+        { name: "phone", extract: (i) => contactPhone(i) },
+      ]),
+    );
+  } else {
+    blocks.push(renderObject({ contacts: "no contacts on this client" }));
+  }
+  return joinBlocks(...blocks);
 }
 
 async function taskDetail(value: string, flags: BrowseFlags): Promise<string> {

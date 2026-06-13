@@ -19,9 +19,12 @@ Use **`review`** for the personal/daily loop, flexible grouping, and entry drill
 
 ## Invocation
 
-`harvest-axi reports <axis> [window] [flags]` — axis ∈ `clients | projects | tasks | team | uninvoiced`.
+`harvest-axi reports <type> [window] [flags]` — type ∈ `clients | projects | tasks | team | uninvoiced | expenses | budget`.
 
-The first four are **time** reports (aggregated tracked hours + billable $). `uninvoiced` is a distinct report (see below) — tracked work **not yet invoiced**.
+- `clients | projects | tasks | team` — **time** reports (aggregated tracked hours + billable $).
+- `uninvoiced` — tracked work **not yet invoiced** (see below).
+- `expenses <axis>` — **expense** totals by `clients | projects | categories | team` (see below).
+- `budget` — a point-in-time **project budget** snapshot (see below).
 
 ## Flags
 
@@ -70,9 +73,26 @@ help[2]:
 
 This is the natural bridge between `review`/`reports` (what was tracked) and `invoices` (what was billed): it answers "what's billable but not yet invoiced."
 
+## reports expenses
+
+`harvest-axi reports expenses <clients|projects|categories|team> [window]` — server-aggregated expense totals. Implements the [expense reports](../api/reports.md#expense-reports).
+
+- **Requires a window** (`--from/--to`, named, or `--since`) like the time axes default to `this-month` — expenses default to `this-month` too (the API requires from/to; we supply the default). Same **365-day** cap.
+- Header: `range`, `report: expenses <axis>`, `total_amount` + `billable_amount` (+ currency; mixed → noted), `rows`, `complete`.
+- Rows sorted by `total_amount` desc, per-axis identity column: clients→`client`, projects→`project`+`client`, categories→`category`, team→`user`. Schema `{<id>,total,billable}`.
+
+## reports budget
+
+`harvest-axi reports budget [--all]` — a point-in-time snapshot of budget vs. spent per project. Implements the [project budget report](../api/reports.md#project-budget-report).
+
+- **Takes no window** (it's current state, not a range); passing date flags is ignored/rejected rather than silently misapplied. `--all` includes inactive projects (default active only, via `is_active`).
+- Header: `report: budget`, `rows`, `complete` (no range — note `snapshot: <date>` is acceptable but not a filter).
+- Rows: `budget[N]{project,client,budget_by,budget,spent,remaining,active}`, sorted by `remaining` asc (most over/at-risk first). Because `budget`/`spent`/`remaining` are hours **or** money depending on `budget_by`, that column is always shown so the unit is legible.
+- Suggestion: point to `reports projects` / `review --project` for the hours behind a budget.
+
 ## Suggestions
 
-Point across axes (`reports tasks`/`reports team`), to `reports uninvoiced` for unbilled work, and down to `review --project "<name>" --by none` for the entries behind a row.
+Point across axes (`reports tasks`/`reports team`), to `reports uninvoiced` for unbilled work, `reports expenses <axis>` for costs, `reports budget` for budget health, and down to `review --project "<name>" --by none` for the entries behind a row.
 
 ## Principles
 

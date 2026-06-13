@@ -50,6 +50,21 @@ The tasks assignable on a project — the authoritative "what can be logged agai
 
 > harvest-axi folds the **per-project** assignments into `browse projects <id>` detail, so an agent sees a project's billable tasks (and their rates) in one call — the data that otherwise required a raw API hit. The self-scoped `GET /v2/users/me/project_assignments` (used by `browse mine`) remains the path for "what *I* can log against."
 
+## Client Contacts
+
+The people at a client — invoice recipients and points of contact. Source: [client contacts](https://help.getharvest.com/api-v2/clients-api/clients/contacts/). Manager/Admin gated like the rest. harvest-axi reads these (list + retrieve); no create/update/delete.
+
+| Operation | Path | Filters |
+|-----------|------|---------|
+| List | `GET /v2/contacts` | `client_id`, `updated_since`, `page`/`per_page` |
+| Retrieve | `GET /v2/contacts/{id}` | — |
+
+> There is **no** `GET /v2/clients/{id}/contacts` nested route — filter the list by `client_id` instead. harvest-axi folds a client's contacts into `browse clients <id>` detail via that filter.
+
+### Contact object
+
+`id` · `client` `{id,name}` · `title` · `first_name` · `last_name` · `email` · `phone_office` · `phone_mobile` · `fax` · `invoice_recipient_status` (`none`|`recipient`|`cc`|`bcc`) · `created_at` · `updated_at`.
+
 ## Principles
 
 **Inherited** — see [`../principles.md`](../principles.md):

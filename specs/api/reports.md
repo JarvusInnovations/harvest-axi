@@ -61,6 +61,44 @@ Paginates like the time reports (`results` array + pagination fields).
 - **Date span ≤ 365 days** — same 1-year cap as the time reports; reject a wider window client-side (reuse the same guard).
 - Same **100 req / 15 min** Reports-API rate limit and role-scoping as time reports.
 
+## Expense Reports
+
+Source: <https://help.getharvest.com/api-v2/reports-api/reports/expense-reports/>. Server-aggregated **expense** totals — the expense analogue of the time reports.
+
+### Endpoints
+
+| Axis | Path | Rows keyed by |
+|------|------|---------------|
+| Clients | `GET /v2/reports/expenses/clients` | client |
+| Projects | `GET /v2/reports/expenses/projects` | project (+ client) |
+| Categories | `GET /v2/reports/expenses/categories` | expense category |
+| Team | `GET /v2/reports/expenses/team` | user |
+
+- **`from` + `to` required** (filter on expense `spent_date`); same **365-day cap** as time reports.
+- `page`/`per_page` (1–2000). No `include_fixed_fee` here.
+
+### Common result fields
+
+`total_amount` · `billable_amount` · `currency`. Plus per-axis identity:
+
+- **clients:** `client_id`, `client_name`
+- **projects:** `client_id`, `client_name`, `project_id`, `project_name`
+- **categories:** `expense_category_id`, `expense_category_name`
+- **team:** `user_id`, `user_name`, `is_contractor`
+
+## Project Budget Report
+
+Source: <https://help.getharvest.com/api-v2/reports-api/reports/project-budget-report/>. A **point-in-time snapshot** of budget vs. spent per project — **not** date-bounded.
+
+### Endpoint — `GET /v2/reports/project_budget`
+
+- **No `from`/`to`** — it reports current budget state, not a window. Accepting a date window would be misleading; the command must not require or send one.
+- `is_active` (filter active/inactive), `page`/`per_page`.
+
+### Result fields (one row per project)
+
+`client_id` · `client_name` · `project_id` · `project_name` · `budget_is_monthly` · `budget_by` · `is_active` · `budget` · `budget_spent` · `budget_remaining`. `budget`/`budget_spent`/`budget_remaining` are in **hours or money depending on `budget_by`** — surface `budget_by` so the unit is unambiguous.
+
 ## Relationship to `time_entries`
 
 The Reports API returns **pre-aggregated** rows (one per entity) — cheap and money-aware, but with no per-entry drill-down, fixed aggregation axes, and the 365-day cap. The `time_entries` endpoint (see [time-entries](time-entries.md)) is the per-entry source `review` uses for flexible grouping and raw rows. See [commands/reports](../commands/reports.md) for how the two commands divide the work.
