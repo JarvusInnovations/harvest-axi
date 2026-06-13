@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [reports]
 specs:
   - specs/api/reports.md
@@ -28,11 +28,11 @@ issues: []
 
 ## Validation
 
-- [ ] `reports uninvoiced --from <d> --to <d>` returns per-project uninvoiced hours/expenses/amount with a summed total + currency, paginated to completion.
-- [ ] `reports uninvoiced` with no window → `VALIDATION_ERROR` naming the required `--from/--to` (no silent default), before any call.
-- [ ] A window > 365 days → `VALIDATION_ERROR` (reuses the time-report guard).
-- [ ] Empty result → definitive `0 ...` empty state; mixed currencies → header notes rather than summing.
-- [ ] Suggestions bridge to `invoices create --from-tracked --project "<name>"` and `review --project "<name>" --unbilled`.
+- [x] `reports uninvoiced --from <d> --to <d>` returns per-project uninvoiced hours/expenses/amount with a summed total + currency, paginated to completion. _(live: May 2026 → 28 projects, $347,187.89 uninvoiced, complete:true; unit: per-project totals + sort)_
+- [x] `reports uninvoiced` with no window → `VALIDATION_ERROR` naming the required `--from/--to` (no silent default), before any call. _(live: exit 2, no fetch; unit asserts no call made)_
+- [x] A window > 365 days → `VALIDATION_ERROR` (reuses the time-report guard). _(unit: 2024→2026 rejected before any call, via the extracted `assertSpan`)_
+- [x] Empty result → definitive `0 ...` empty state; mixed currencies → header notes rather than summing. _(shared with the time-axis code paths; time-axis mixed-currency is unit-tested)_
+- [x] Suggestions bridge to `invoices create --from-tracked --project "<name>"` and `review --project "<name>" --unbilled`. _(rendered in the live output)_
 
 ## Risks / unknowns
 
@@ -41,7 +41,10 @@ issues: []
 
 ## Notes
 
-_(to be filled at closeout)_
+- **`uninvoiced` is a peer of the time axes, not one of them** — different endpoint (`/v2/reports/uninvoiced`), different schema, and crucially **no default window**. Branches before the `reports/time/${axis}` path. The required-window guard fires before `parseRange`, so a bare `reports uninvoiced` errors fast with a message that explains _why_ it differs from the time axes.
+- **Extracted `assertSpan(from,to)`** from the inline 365-day check so both the time axes and uninvoiced share one guard — no duplicated cap logic.
+- **Live cross-check confirmed the bridge**: `reports uninvoiced --from 2026-05-01 --to 2026-05-31` surfaced **API Test at 11.5h / $11.50**, exactly matching the `--from-tracked` draft built from the same entries — independent validation that review → uninvoiced → invoice all agree on the same numbers.
+- 112 → 121 tests total (reports: +3).
 
 ## Follow-ups
 
