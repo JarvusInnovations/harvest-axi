@@ -18,6 +18,8 @@ export interface ProfileCache {
   week_start_day?: string;
   /** true → account uses start/end timers; false → duration mode. */
   wants_timestamp_timers?: boolean;
+  /** e.g. "https://acme.harvestapp.com" — from /v2/company; builds public invoice URLs. */
+  base_uri?: string;
   cached_at: string;
 }
 
