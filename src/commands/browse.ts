@@ -1,30 +1,44 @@
 import { AxiError } from "axi-sdk-js";
+import { readConfig } from "../config.js";
+import { harvestRequest } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
-import { resolveEntity } from "../harvest/resolve.js";
+import { resolveEntity, type EntityKind } from "../harvest/resolve.js";
 import type { QueryValue } from "../harvest/client.js";
 import {
   computed,
   field,
+  joinBlocks,
   pluck,
+  renderHelp,
+  renderList,
   renderListResponse,
+  renderObject,
   truncated,
   type FieldDef,
 } from "../output/index.js";
+import { parseRange } from "../time/ranges.js";
 
-export const BROWSE_HELP = `usage: harvest-axi browse <subcommand> [flags]
-subcommands[4]:
+export const BROWSE_HELP = `usage: harvest-axi browse <subcommand> [<id|name>] [flags]
+list subcommands[5]:
   clients     clients on the account
   projects    projects (--client <id|name> to filter)
   tasks       task types
+  users       people on the account
   mine        your project assignments (what you can log against, + tasks)
+detail (one entity, full record):
+  browse clients <id|name>     browse projects <id|name>
+  browse tasks <id|name>       browse users <id|name>|me
+  (projects detail folds in the project's task assignments)
 flags:
   --all        include archived/inactive (default: active only)
   --client <id|name>   (projects only) filter to one client
+  --since <dur>        only entities updated within 7d | 2w | 1m
   --refresh    bypass the name-resolution cache
 examples:
   harvest-axi browse clients
   harvest-axi browse projects --client "Caltrans"
-  harvest-axi browse mine
+  harvest-axi browse projects "API Test"
+  harvest-axi browse users me
 notes:
   Names from these lists resolve in review/entries scope flags (e.g.
   \`review --client "Caltrans"\`), backed by a cached id lookup.
@@ -33,29 +47,38 @@ notes:
 interface BrowseFlags {
   all: boolean;
   client?: string;
+  since?: string;
   refresh: boolean;
 }
 
-function parseFlags(args: string[]): BrowseFlags {
+/** Split positionals (id/name) from flags; only a non-`--` token is a positional. */
+function parseArgs(args: string[]): { flags: BrowseFlags; positionals: string[] } {
   const flags: BrowseFlags = { all: false, refresh: false };
+  const positionals: string[] = [];
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case "--all":
-        flags.all = true;
-        break;
-      case "--client":
-        flags.client = args[i + 1];
-        i++;
-        break;
-      case "--refresh":
-        flags.refresh = true;
+      case "--all": flags.all = true; break;
+      case "--client": flags.client = args[i + 1]; i++; break;
+      case "--since": flags.since = args[i + 1]; i++; break;
+      case "--refresh": flags.refresh = true; break;
+      default:
+        if (!args[i].startsWith("--")) positionals.push(args[i]);
         break;
     }
   }
-  return flags;
+  return { flags, positionals };
 }
 
 const activeCol = computed("active", (i) => i.is_active);
+
+/** Map a since-duration to an updated_since ISO timestamp, or throw on bad input. */
+function sinceQuery(since: string | undefined): Record<string, QueryValue> {
+  if (!since) return {};
+  // Reuse the range parser (throws VALIDATION_ERROR on unparseable input) — its
+  // `from` is the YYYY-MM-DD window start, which we hand to updated_since.
+  const { from } = parseRange({ since });
+  return { updated_since: `${from}T00:00:00Z` };
+}
 
 export async function browseCommand(args: string[]): Promise<string> {
   if (args.length === 0 || (args.length === 1 && args[0] === "--help")) {
@@ -64,35 +87,29 @@ export async function browseCommand(args: string[]): Promise<string> {
   const sub = args[0];
   const rest = args.slice(1);
   if (rest.includes("--help")) return BROWSE_HELP;
-  const flags = parseFlags(rest);
+  const { flags, positionals } = parseArgs(rest);
+
+  // A trailing positional turns a list subcommand into a detail view.
+  const id = positionals[0];
 
   switch (sub) {
     case "clients":
-      return browseList("clients", "clients", flags, [
-        field("id"),
-        truncated("name", 50),
-        activeCol,
-      ]);
-    case "projects": {
-      const query: Record<string, QueryValue> = {};
-      if (flags.client) {
-        query.client_id = (await resolveEntity("client", flags.client, { refresh: flags.refresh })).id;
-      }
-      return browseList(
-        "projects",
-        "projects",
-        flags,
-        [field("id"), truncated("name", 50), pluck("client", "name", "client"), field("code"), activeCol],
-        query,
-      );
-    }
+      return id
+        ? clientDetail(id, flags)
+        : browseList("clients", "clients", flags, [field("id"), truncated("name", 50), activeCol]);
+    case "projects":
+      return id ? projectDetail(id, flags) : projectsList(flags);
     case "tasks":
-      return browseList("tasks", "tasks", flags, [
-        field("id"),
-        truncated("name", 50),
-        computed("billable_default", (i) => i.billable_by_default),
-        activeCol,
-      ]);
+      return id
+        ? taskDetail(id, flags)
+        : browseList("tasks", "tasks", flags, [
+            field("id"),
+            truncated("name", 50),
+            computed("billable_default", (i) => i.billable_by_default),
+            activeCol,
+          ]);
+    case "users":
+      return id ? userDetail(id, flags) : usersList(flags);
     case "mine":
       return browseMine();
     default:
@@ -102,6 +119,36 @@ export async function browseCommand(args: string[]): Promise<string> {
   }
 }
 
+async function projectsList(flags: BrowseFlags): Promise<string> {
+  const query: Record<string, QueryValue> = { ...sinceQuery(flags.since) };
+  if (flags.client) {
+    query.client_id = (await resolveEntity("client", flags.client, { refresh: flags.refresh })).id;
+  }
+  return browseList(
+    "projects",
+    "projects",
+    flags,
+    [field("id"), truncated("name", 50), pluck("client", "name", "client"), field("code"), activeCol],
+    query,
+  );
+}
+
+async function usersList(flags: BrowseFlags): Promise<string> {
+  return browseList(
+    "users",
+    "users",
+    flags,
+    [
+      field("id"),
+      computed("name", (i) => userName(i)),
+      field("email"),
+      computed("roles", (i) => (Array.isArray(i.access_roles) ? (i.access_roles as string[]).join("/") : "")),
+      activeCol,
+    ],
+    sinceQuery(flags.since),
+  );
+}
+
 async function browseList(
   path: string,
   key: string,
@@ -109,14 +156,16 @@ async function browseList(
   schema: FieldDef[],
   query: Record<string, QueryValue> = {},
 ): Promise<string> {
-  const res = await paginateAll<Record<string, unknown>>(path, key, query);
+  const mergedQuery = key === "projects" || key === "users" ? query : { ...query, ...sinceQuery(flags.since) };
+  const res = await paginateAll<Record<string, unknown>>(path, key, mergedQuery);
   let items = res.items;
   if (!flags.all) items = items.filter((i) => i.is_active !== false);
 
   const suggestions: string[] = [];
   if (items.length > 0) {
-    if (key === "projects") suggestions.push('Run `harvest-axi review --project "<name>" --by task` to review one project');
+    if (key === "projects") suggestions.push('Run `harvest-axi browse projects "<name>"` for one project\'s detail + tasks');
     else if (key === "clients") suggestions.push('Run `harvest-axi review --client "<name>" --by project` to review one client');
+    else if (key === "users") suggestions.push('Run `harvest-axi browse users <id|name>` for one user\'s full record');
     else suggestions.push("Run `harvest-axi browse mine` to see which projects/tasks you can log against");
     if (!flags.all) suggestions.push("Add `--all` to include archived/inactive");
   }
@@ -129,6 +178,120 @@ async function browseList(
     suggestions,
     emptyMessage: `0 ${flags.all ? "" : "active "}${key} found`,
   });
+}
+
+// ── Detail views ────────────────────────────────────────────────────────────
+
+function userName(u: Record<string, unknown>): string {
+  const name = [u.first_name, u.last_name].filter(Boolean).join(" ");
+  return name || (u.email as string) || `user ${u.id}`;
+}
+
+/** Resolve a positional id/name to a numeric id for a detail fetch. */
+async function resolveId(kind: EntityKind, value: string, flags: BrowseFlags): Promise<number> {
+  return (await resolveEntity(kind, value, { refresh: flags.refresh })).id;
+}
+
+async function clientDetail(value: string, flags: BrowseFlags): Promise<string> {
+  const id = await resolveId("client", value, flags);
+  const c = await harvestRequest<Record<string, unknown>>(`clients/${id}`);
+  return renderObject({
+    id: c.id,
+    name: c.name,
+    active: c.is_active,
+    currency: c.currency ?? "—",
+    address: c.address ?? "—",
+    statement_key: c.statement_key ?? "—",
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+  });
+}
+
+async function taskDetail(value: string, flags: BrowseFlags): Promise<string> {
+  const id = await resolveId("task", value, flags);
+  const t = await harvestRequest<Record<string, unknown>>(`tasks/${id}`);
+  return renderObject({
+    id: t.id,
+    name: t.name,
+    billable_by_default: t.billable_by_default,
+    default_hourly_rate: t.default_hourly_rate ?? "—",
+    is_default: t.is_default,
+    active: t.is_active,
+    created_at: t.created_at,
+    updated_at: t.updated_at,
+  });
+}
+
+async function userDetail(value: string, flags: BrowseFlags): Promise<string> {
+  // `me` (or no resolvable name) → the authenticated user, which works for any role.
+  const u =
+    value.toLowerCase() === "me"
+      ? await harvestRequest<Record<string, unknown>>("users/me")
+      : await harvestRequest<Record<string, unknown>>(`users/${await resolveId("user", value, flags)}`);
+
+  const capSeconds = typeof u.weekly_capacity === "number" ? u.weekly_capacity : 0;
+  return renderObject({
+    id: u.id,
+    name: userName(u),
+    email: u.email ?? "—",
+    telephone: u.telephone || "—",
+    timezone: u.timezone ?? "—",
+    access_roles: Array.isArray(u.access_roles) ? (u.access_roles as string[]).join(", ") : "—",
+    roles: Array.isArray(u.roles) && u.roles.length ? (u.roles as string[]).join(", ") : "—",
+    is_contractor: u.is_contractor,
+    weekly_capacity_hours: capSeconds ? Math.round((capSeconds / 3600) * 100) / 100 : "—",
+    default_hourly_rate: u.default_hourly_rate ?? "—",
+    cost_rate: u.cost_rate ?? "—",
+    active: u.is_active,
+  });
+}
+
+async function projectDetail(value: string, flags: BrowseFlags): Promise<string> {
+  const id = await resolveId("project", value, flags);
+  const p = await harvestRequest<Record<string, unknown>>(`projects/${id}`);
+  const assignments = await paginateAll<Record<string, unknown>>(
+    `projects/${id}/task_assignments`,
+    "task_assignments",
+  );
+  const activeTasks = assignments.items.filter((a) => a.is_active !== false);
+
+  const header = {
+    id: p.id,
+    name: p.name,
+    code: p.code || "—",
+    client: (p.client as { name?: string } | undefined)?.name ?? "—",
+    active: p.is_active,
+    is_billable: p.is_billable,
+    is_fixed_fee: p.is_fixed_fee,
+    bill_by: p.bill_by ?? "—",
+    hourly_rate: p.hourly_rate ?? "—",
+    budget: p.budget ?? "—",
+    budget_by: p.budget_by ?? "—",
+    cost_budget: p.cost_budget ?? "—",
+    fee: p.fee ?? "—",
+    starts_on: p.starts_on ?? "—",
+    ends_on: p.ends_on ?? "—",
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+  };
+
+  const blocks = [renderObject({ project: header })];
+  if (p.notes) blocks.push(renderObject({ notes: p.notes }));
+  blocks.push(
+    renderList("tasks", activeTasks, [
+      { name: "task", extract: (i) => (i.task as { name?: string } | undefined)?.name ?? "—" },
+      { name: "billable", extract: (i) => i.billable },
+      { name: "hourly_rate", extract: (i) => i.hourly_rate ?? "—" },
+      { name: "active", extract: (i) => i.is_active },
+    ]),
+  );
+  blocks.push(
+    renderHelp([
+      `Run \`harvest-axi review --project "${p.name}" --by task\` to review this project`,
+      'Run `harvest-axi entries log --project "<name>" --task "<name>" --hours <h>` to log against a task',
+    ]),
+  );
+  return joinBlocks(...blocks);
 }
 
 async function browseMine(): Promise<string> {
