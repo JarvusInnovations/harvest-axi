@@ -65,3 +65,35 @@ describe("reports", () => {
     expect(out).toContain("0 tasks with tracked time");
   });
 });
+
+describe("reports uninvoiced", () => {
+  it("requires an explicit window before any call", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(reportsCommand(["uninvoiced"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("aggregates uninvoiced hours/expenses/amount per project, sorted by amount", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      resultsPage([
+        { project_id: 1, project_name: "Small", client_name: "AcmeCo", total_hours: 2, uninvoiced_hours: 2, uninvoiced_expenses: 0, uninvoiced_amount: 200, currency: "USD" },
+        { project_id: 2, project_name: "Big", client_name: "BetaCo", total_hours: 10, uninvoiced_hours: 10, uninvoiced_expenses: 50, uninvoiced_amount: 1500, currency: "USD" },
+      ]),
+    );
+    const out = await reportsCommand(["uninvoiced", "--from", "2026-05-01", "--to", "2026-05-31"]);
+    expect(out).toContain("report: uninvoiced");
+    expect(out).toContain("uninvoiced_amount: 1700 USD");
+    expect(out).toContain("uninvoiced[2]{project,client,hours,uninvoiced_hours,expenses,amount}:");
+    // Big ($1500) sorts before Small ($200)
+    expect(out.indexOf("Big")).toBeLessThan(out.indexOf("Small"));
+    expect(String(spy.mock.calls[0]?.[0])).toContain("/reports/uninvoiced");
+  });
+
+  it("reuses the 365-day span guard", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      reportsCommand(["uninvoiced", "--from", "2024-01-01", "--to", "2026-01-01"]),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
