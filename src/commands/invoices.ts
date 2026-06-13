@@ -7,7 +7,7 @@ import type { QueryValue } from "../harvest/client.js";
 import { joinBlocks, renderHelp, renderList, renderObject } from "../output/index.js";
 import { parseRange, type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
 
-export const INVOICES_HELP = `usage: harvest-axi invoices [get <id>] [flags]
+export const INVOICES_HELP = `usage: harvest-axi invoices [get|create|edit|delete] [args] [flags]
 reads (Admin/Manager only — a non-manager token gets FORBIDDEN):
   (none)                   list/review invoices (totals + by-state header)
   get <id>                 full detail: money, lifecycle, links, line items,
@@ -22,11 +22,34 @@ list filters:
   --limit <n>              cap raw rows (default 200)
 get flags:
   --raw                    dump untranslated invoice JSON
+writes — DRAFT WORKBENCH (create yields a draft; edit/delete act on drafts only):
+  create                   new draft (free-form lines or --from-tracked)
+  edit <id>                change a DRAFT's fields / line items
+  delete <id>              delete a DRAFT (idempotent)
+create/edit fields:
+  --client <id|name>       (create, required)
+  --subject <text>  --notes <text>  --po <text>
+  --issue-date <date>  --due-date <date>  --payment-term <term>
+  --tax <pct>  --tax2 <pct>  --discount <pct>  --currency <code>
+  --line "<kind>|<unit_price>|<qty>|<desc>"     add a line (repeatable)
+  --update-line "<id>|<kind>|<unit_price>|<qty>|<desc>"  edit a line (blank=keep)
+  --remove-line <id>       delete a line (repeatable)
+create --from-tracked (build a draft from tracked time/expenses):
+  --from-tracked           import mode
+  --project <id|name>      project to bill (repeatable, ≥1 required)
+  --summary <t>            project | task | people | detailed (default project)
+  --from <date> --to <date>   time window (omit → all unbilled)
+  --expenses               also import expenses
+  --expense-summary <t>    project | category | people | detailed (default project)
+NOT supported by design (do these in Harvest): send/email, mark-as-sent,
+  close/re-open, record payment. harvest-axi never leaves draft state.
 examples:
   harvest-axi invoices --drafts
-  harvest-axi invoices --client "Caltrans" --state open
-  harvest-axi invoices --last-month
   harvest-axi invoices get 13150403
+  harvest-axi invoices create --client "Caltrans" --line "Service|200|10|May work"
+  harvest-axi invoices create --client "Acme" --from-tracked --project "GTFS" --last-month
+  harvest-axi invoices edit 13150403 --notes "revised" --remove-line 998877
+  harvest-axi invoices delete 13150403
 `;
 
 const STATES = ["draft", "open", "paid", "closed"] as const;
@@ -88,17 +111,27 @@ const nestedName = (entry: Record<string, unknown>, key: string): string =>
 export async function invoicesCommand(args: string[]): Promise<string> {
   if (args.includes("--help")) return INVOICES_HELP;
 
-  if (args[0] === "get") {
-    const id = args[1];
-    if (!id || id.startsWith("--")) {
-      throw new AxiError("invoices get requires an invoice id", "VALIDATION_ERROR", [
-        "Run `harvest-axi invoices` to list invoices and their ids",
-      ]);
-    }
-    return invoiceDetail(id, args.slice(2));
+  switch (args[0]) {
+    case "get":
+      return invoiceDetail(requireInvoiceId(args[1], "get"), args.slice(2));
+    case "create":
+      return invoiceCreate(args.slice(1));
+    case "edit":
+      return invoiceEdit(requireInvoiceId(args[1], "edit"), args.slice(2));
+    case "delete":
+      return invoiceDelete(requireInvoiceId(args[1], "delete"));
+    default:
+      return invoiceList(args);
   }
+}
 
-  return invoiceList(args);
+function requireInvoiceId(value: string | undefined, sub: string): string {
+  if (!value || value.startsWith("--") || !/^\d+$/.test(value)) {
+    throw new AxiError(`invoices ${sub} requires a numeric invoice id`, "VALIDATION_ERROR", [
+      "Run `harvest-axi invoices` to list invoices and their ids",
+    ]);
+  }
+  return value;
 }
 
 async function invoiceList(args: string[]): Promise<string> {
@@ -332,4 +365,268 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
   }
 
   return joinBlocks(...blocks);
+}
+
+// ── Writes — draft workbench ────────────────────────────────────────────────
+
+/** Top-level invoice fields settable on create/edit, parsed from flags. */
+interface WriteFlags {
+  client?: string;
+  subject?: string;
+  notes?: string;
+  po?: string;
+  issueDate?: string;
+  dueDate?: string;
+  paymentTerm?: string;
+  currency?: string;
+  tax?: string;
+  tax2?: string;
+  discount?: string;
+  lines: string[]; // --line "kind|unit_price|qty|desc"
+  updateLines: string[]; // --update-line "id|kind|unit_price|qty|desc"
+  removeLines: string[]; // --remove-line <id>
+  fromTracked: boolean;
+  projects: string[];
+  summary?: string;
+  from?: string;
+  to?: string;
+  expenses: boolean;
+  expenseSummary?: string;
+}
+
+function parseWriteFlags(args: string[]): WriteFlags {
+  const f: WriteFlags = { lines: [], updateLines: [], removeLines: [], projects: [], fromTracked: false, expenses: false };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    const n = args[i + 1];
+    switch (a) {
+      case "--client": f.client = n; i++; break;
+      case "--subject": f.subject = n; i++; break;
+      case "--notes": f.notes = n; i++; break;
+      case "--po": f.po = n; i++; break;
+      case "--issue-date": f.issueDate = n; i++; break;
+      case "--due-date": f.dueDate = n; i++; break;
+      case "--payment-term": f.paymentTerm = n; i++; break;
+      case "--currency": f.currency = n; i++; break;
+      case "--tax": f.tax = n; i++; break;
+      case "--tax2": f.tax2 = n; i++; break;
+      case "--discount": f.discount = n; i++; break;
+      case "--line": f.lines.push(n); i++; break;
+      case "--update-line": f.updateLines.push(n); i++; break;
+      case "--remove-line": f.removeLines.push(n); i++; break;
+      case "--from-tracked": f.fromTracked = true; break;
+      case "--project": f.projects.push(n); i++; break;
+      case "--summary": f.summary = n; i++; break;
+      case "--from": f.from = n; i++; break;
+      case "--to": f.to = n; i++; break;
+      case "--expenses": f.expenses = true; break;
+      case "--expense-summary": f.expenseSummary = n; i++; break;
+    }
+  }
+  return f;
+}
+
+/** Parse a number flag or throw a clear VALIDATION_ERROR (percentages, prices). */
+function numFlag(name: string, value: string): number {
+  const v = Number(value);
+  if (Number.isNaN(v)) {
+    throw new AxiError(`${name} must be a number, got "${value}"`, "VALIDATION_ERROR", []);
+  }
+  return v;
+}
+
+/**
+ * Parse a `--line "kind|unit_price|qty|desc"` spec into a line-item body.
+ * kind + unit_price are required; qty defaults to 1; desc optional.
+ */
+function parseLineItem(spec: string): Record<string, unknown> {
+  const parts = spec.split("|").map((s) => s.trim());
+  const [kind, unitPrice, qty, desc] = parts;
+  if (!kind || !unitPrice) {
+    throw new AxiError(`--line needs at least "kind|unit_price" — got "${spec}"`, "VALIDATION_ERROR", [
+      'Example: --line "Service|200|10|May consulting"',
+    ]);
+  }
+  const item: Record<string, unknown> = { kind, unit_price: numFlag("unit_price", unitPrice) };
+  if (qty) item.quantity = numFlag("quantity", qty);
+  if (desc) item.description = desc;
+  return item;
+}
+
+/** Parse `--update-line "id|kind|unit_price|qty|desc"` — blank fields are left unchanged. */
+function parseUpdateLine(spec: string): Record<string, unknown> {
+  const parts = spec.split("|").map((s) => s.trim());
+  const [id, kind, unitPrice, qty, desc] = parts;
+  if (!id || !/^\d+$/.test(id)) {
+    throw new AxiError(`--update-line needs a numeric line id first — got "${spec}"`, "VALIDATION_ERROR", [
+      'Example: --update-line "998877|Service|220||revised rate"',
+    ]);
+  }
+  const item: Record<string, unknown> = { id: Number(id) };
+  if (kind) item.kind = kind;
+  if (unitPrice) item.unit_price = numFlag("unit_price", unitPrice);
+  if (qty) item.quantity = numFlag("quantity", qty);
+  if (desc) item.description = desc;
+  return item;
+}
+
+/** Build the shared top-level body (subject/notes/dates/tax/...) from flags. */
+function buildTopLevel(f: WriteFlags): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (f.subject !== undefined) body.subject = f.subject;
+  if (f.notes !== undefined) body.notes = f.notes;
+  if (f.po !== undefined) body.purchase_order = f.po;
+  if (f.issueDate) body.issue_date = f.issueDate;
+  if (f.paymentTerm) body.payment_term = f.paymentTerm;
+  if (f.currency) body.currency = f.currency;
+  if (f.tax !== undefined) body.tax = numFlag("--tax", f.tax);
+  if (f.tax2 !== undefined) body.tax2 = numFlag("--tax2", f.tax2);
+  if (f.discount !== undefined) body.discount = numFlag("--discount", f.discount);
+  if (f.dueDate) {
+    // A custom due_date requires payment_term: custom (else the API computes it).
+    if (f.paymentTerm && f.paymentTerm !== "custom") {
+      throw new AxiError(
+        `--due-date needs --payment-term custom (you passed "${f.paymentTerm}")`,
+        "VALIDATION_ERROR",
+        ["Either drop --due-date and let the term compute it, or pass --payment-term custom"],
+      );
+    }
+    body.payment_term = "custom";
+    body.due_date = f.dueDate;
+  }
+  return body;
+}
+
+/**
+ * Draft-only guard: fetch the invoice and refuse unless it's a draft. The
+ * Harvest API does not gate edit/delete by state — this is harvest-axi's
+ * workbench safety convention, enforced before any mutation. Returns the
+ * fetched invoice (so callers needn't re-GET). NOT_FOUND propagates.
+ */
+async function requireDraft(id: string, action: string): Promise<Record<string, unknown>> {
+  const invoice = await harvestRequest<Record<string, unknown>>(`invoices/${id}`);
+  if (invoice.state !== "draft") {
+    throw new AxiError(
+      `invoice #${id} is "${invoice.state}", not a draft — harvest-axi only ${action}s drafts`,
+      "VALIDATION_ERROR",
+      [
+        "harvest-axi is a draft workbench; finalize, send, close, and payments are done in Harvest",
+        `Run \`harvest-axi invoices get ${id}\` to inspect it`,
+      ],
+    );
+  }
+  return invoice;
+}
+
+function createdSummary(status: string, inv: Record<string, unknown>): string {
+  return renderObject({
+    status,
+    id: inv.id,
+    number: inv.number ?? "—",
+    state: inv.state,
+    client: nestedName(inv, "client"),
+    amount: money2(num(inv.amount)),
+    line_items: Array.isArray(inv.line_items) ? inv.line_items.length : 0,
+  });
+}
+
+async function invoiceCreate(args: string[]): Promise<string> {
+  const f = parseWriteFlags(args);
+  if (!f.client) {
+    throw new AxiError("`invoices create` requires --client", "VALIDATION_ERROR", [
+      "Run `harvest-axi browse clients` to find a client id or name",
+    ]);
+  }
+  // Resolve the client name → id before any mutation (fail fast).
+  const client = await resolveEntity("client", f.client);
+  const body = buildTopLevel(f);
+  body.client_id = client.id;
+
+  if (f.fromTracked) {
+    if (f.projects.length === 0) {
+      throw new AxiError("`--from-tracked` requires at least one --project", "VALIDATION_ERROR", [
+        "Run `harvest-axi browse projects` to find projects to bill",
+      ]);
+    }
+    if (f.lines.length > 0) {
+      throw new AxiError("`--from-tracked` and `--line` are mutually exclusive", "VALIDATION_ERROR", [
+        "Use --from-tracked to import time, OR --line for free-form items — not both",
+      ]);
+    }
+    const projectIds = await Promise.all(f.projects.map((p) => resolveEntity("project", p).then((e) => e.id)));
+    const importBlock: Record<string, unknown> = { project_ids: projectIds };
+    const time: Record<string, unknown> = { summary_type: f.summary ?? "project" };
+    if (f.from) time.from = f.from;
+    if (f.to) time.to = f.to;
+    importBlock.time = time;
+    if (f.expenses) {
+      const exp: Record<string, unknown> = { summary_type: f.expenseSummary ?? "project" };
+      if (f.from) exp.from = f.from;
+      if (f.to) exp.to = f.to;
+      importBlock.expenses = exp;
+    }
+    body.line_items_import = importBlock;
+  } else {
+    if (f.lines.length === 0) {
+      throw new AxiError("`invoices create` needs --line items or --from-tracked", "VALIDATION_ERROR", [
+        'Free-form: --line "Service|200|10|May work" (repeatable)',
+        "From tracked time: --from-tracked --project <name>",
+      ]);
+    }
+    body.line_items = f.lines.map(parseLineItem);
+  }
+
+  const created = await harvestRequest<Record<string, unknown>>("invoices", { method: "POST", body });
+  return joinBlocks(
+    createdSummary("draft created", created),
+    renderHelp([
+      `Run \`harvest-axi invoices get ${created.id}\` to review the draft`,
+      "Finalize and send it in Harvest when ready (harvest-axi keeps it a draft)",
+    ]),
+  );
+}
+
+async function invoiceEdit(id: string, args: string[]): Promise<string> {
+  const f = parseWriteFlags(args);
+  // Guard first — no mutation on a non-draft.
+  await requireDraft(id, "edit");
+
+  const body = buildTopLevel(f);
+  const lineItems: Record<string, unknown>[] = [
+    ...f.lines.map(parseLineItem),
+    ...f.updateLines.map(parseUpdateLine),
+    ...f.removeLines.map((rid) => {
+      if (!/^\d+$/.test(rid)) {
+        throw new AxiError(`--remove-line needs a numeric line id, got "${rid}"`, "VALIDATION_ERROR", []);
+      }
+      return { id: Number(rid), _destroy: true };
+    }),
+  ];
+  if (lineItems.length > 0) body.line_items = lineItems;
+
+  if (Object.keys(body).length === 0) {
+    throw new AxiError("`invoices edit` needs at least one field or line change", "VALIDATION_ERROR", [
+      "e.g. --notes, --subject, --due-date, --line, --update-line, --remove-line",
+    ]);
+  }
+
+  const updated = await harvestRequest<Record<string, unknown>>(`invoices/${id}`, { method: "PATCH", body });
+  return joinBlocks(
+    createdSummary("draft updated", updated),
+    renderHelp([`Run \`harvest-axi invoices get ${id}\` to see the full updated draft`]),
+  );
+}
+
+async function invoiceDelete(id: string): Promise<string> {
+  // Guard first — refuse non-drafts; NOT_FOUND → idempotent no-op.
+  try {
+    await requireDraft(id, "delete");
+  } catch (err) {
+    if (err instanceof AxiError && err.code === "NOT_FOUND") {
+      return renderObject({ status: `invoice ${id} not found (no-op)`, id });
+    }
+    throw err;
+  }
+  await harvestRequest(`invoices/${id}`, { method: "DELETE" });
+  return renderObject({ status: "draft deleted", id });
 }

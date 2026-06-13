@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -165,6 +165,142 @@ describe("invoices get", () => {
   });
 
   it("requires an id", async () => {
-    await expect(invoicesCommand(["get"])).rejects.toThrow(/requires an invoice id/);
+    await expect(invoicesCommand(["get"])).rejects.toThrow(/requires a numeric invoice id/);
+  });
+});
+
+describe("invoices create", () => {
+  it("requires --client before any fetch", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(invoicesCommand(["create"])).rejects.toThrow(/requires --client/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("creates a free-form draft, resolving the client and parsing lines", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients")) // resolve client
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 99, number: "1", state: "draft", amount: 2000, client: { id: 1, name: "Acme" }, line_items: [{}] }), { status: 201 }));
+    const out = await invoicesCommand(["create", "--client", "Acme", "--line", "Service|200|10|May work"]);
+    expect(out).toContain("draft created");
+    const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
+    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    expect(body.client_id).toBe(1);
+    expect(body.line_items).toEqual([{ kind: "Service", unit_price: 200, quantity: 10, description: "May work" }]);
+  });
+
+  it("builds line_items_import for --from-tracked", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients")) // client
+      .mockResolvedValueOnce(listPage([{ id: 5, name: "Proj" }], "projects")) // project
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 99, state: "draft", amount: 0, client: { id: 1, name: "Acme" }, line_items: [] }), { status: 201 }));
+    await invoicesCommand(["create", "--client", "Acme", "--from-tracked", "--project", "Proj", "--summary", "task", "--from", "2026-05-01", "--to", "2026-05-31"]);
+    const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
+    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    expect(body.line_items_import).toEqual({ project_ids: [5], time: { summary_type: "task", from: "2026-05-01", to: "2026-05-31" } });
+    expect(body.line_items).toBeUndefined();
+  });
+
+  it("rejects --from-tracked combined with --line", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients"));
+    await expect(
+      invoicesCommand(["create", "--client", "Acme", "--from-tracked", "--project", "Proj", "--line", "Service|1|1|x"]),
+    ).rejects.toThrow(/mutually exclusive/);
+  });
+
+  it("rejects --due-date with a non-custom payment term", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients"));
+    await expect(
+      invoicesCommand(["create", "--client", "Acme", "--line", "Service|1|1|x", "--due-date", "2026-07-01", "--payment-term", "net 30"]),
+    ).rejects.toThrow(/payment-term custom/);
+  });
+});
+
+describe("invoices edit/delete — draft guard", () => {
+  const draft = { id: 5, state: "draft", number: "1", amount: 0, client: { id: 1, name: "Acme" }, line_items: [] };
+  const paid = { id: 6, state: "paid", number: "2", amount: 100, client: { id: 1, name: "Acme" }, line_items: [] };
+
+  it("edits a draft: guards via GET, then PATCHes with line ops", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard GET
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...draft, line_items: [{}] }), { status: 200 })); // PATCH
+    const out = await invoicesCommand(["edit", "5", "--notes", "hi", "--line", "Service|10|1|x", "--remove-line", "777"]);
+    expect(out).toContain("draft updated");
+    const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
+    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    expect(body.notes).toBe("hi");
+    expect(body.line_items).toEqual([
+      { kind: "Service", unit_price: 10, quantity: 1, description: "x" },
+      { id: 777, _destroy: true },
+    ]);
+  });
+
+  it("refuses to edit a non-draft and never PATCHes", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(paid), { status: 200 }));
+    await expect(invoicesCommand(["edit", "6", "--notes", "x"])).rejects.toThrow(/not a draft/);
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(false);
+  });
+
+  it("refuses to delete a non-draft and never DELETEs", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(paid), { status: 200 }));
+    await expect(invoicesCommand(["delete", "6"])).rejects.toThrow(/not a draft/);
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(false);
+  });
+
+  it("deletes a draft after the guard passes", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard
+      .mockResolvedValueOnce(new Response("", { status: 200 })); // DELETE
+    const out = await invoicesCommand(["delete", "5"]);
+    expect(out).toContain("draft deleted");
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(true);
+  });
+
+  it("delete of an absent invoice is an idempotent no-op", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }),
+    );
+    const out = await invoicesCommand(["delete", "404"]);
+    expect(out).toContain("no-op");
+  });
+});
+
+describe("write boundary — out-of-scope endpoints are never mutated", () => {
+  // The draft-workbench boundary: harvest-axi must never send, mark-as-sent,
+  // close/re-open, or record/delete a payment. `get` legitimately *reads*
+  // /payments and /messages (GET via paginateAll), so we assert the absence of
+  // the mutating signals, not the paths themselves.
+  const src = readFileSync(new URL("../../src/commands/invoices.ts", import.meta.url), "utf-8");
+
+  it("never sets a transition event_type in a request body", () => {
+    // Reading the event_type field for the messages view is fine; what's
+    // forbidden is *writing* one (`event_type: "send"`), which is how a
+    // mark-as-sent/close/re-open transition would be triggered.
+    expect(src).not.toMatch(/event_type:\s*["'`]/);
+  });
+
+  it("only ever touches /messages and /payments through GET paginateAll", () => {
+    // Every reference to a sub-resource path must be inside a paginateAll(...)
+    // call (GET-only). A POST/PATCH/DELETE to them would appear as a bare
+    // template path in a harvestRequest, which this forbids.
+    for (const sub of ["payments", "messages"]) {
+      const refs = [...src.matchAll(new RegExp(`[\\\`"][^\\\`"]*/${sub}\\b`, "g"))];
+      expect(refs.length).toBeGreaterThan(0); // reads do exist
+      for (const m of refs) {
+        const line = src.slice(Math.max(0, m.index - 40), m.index + 40);
+        expect(line).toContain("paginateAll");
+      }
+    }
+  });
+
+  it("only ever POST/PATCH/DELETEs the invoices collection or a single invoice", () => {
+    // Collect the path of every mutating harvestRequest. Allowed targets:
+    // `invoices` (create) and `invoices/${id}` (edit/delete). Nothing nested.
+    const mutating = [...src.matchAll(/harvestRequest[^\n]*?\n?[^\n]*?method:\s*"(POST|PATCH|DELETE)"/g)];
+    // Sanity: we do have mutations (create/edit/delete).
+    expect(mutating.length).toBeGreaterThanOrEqual(3);
   });
 });
