@@ -22,6 +22,7 @@ interface CompanyResponse {
   name?: string;
   week_start_day?: string;
   wants_timestamp_timers?: boolean;
+  base_uri?: string;
 }
 
 /**
@@ -84,6 +85,7 @@ export async function whoMe(creds: Credentials): Promise<ProfileCache> {
     account_name: company.name ?? `account ${creds.accountId}`,
     week_start_day: company.week_start_day,
     wants_timestamp_timers: company.wants_timestamp_timers,
+    base_uri: company.base_uri,
     cached_at: new Date().toISOString(),
   };
 }
