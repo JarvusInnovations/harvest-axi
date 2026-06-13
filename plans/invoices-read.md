@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [auth-identity, browse]
 specs:
   - specs/api/invoices.md
@@ -28,12 +28,12 @@ issues: []
 
 ## Validation
 
-- [ ] `invoices` lists against the live account with a totals + by-state header (counts per state, summed `$ amount`/`$ due`, currency), `complete: true`, newest-first rows.
-- [ ] `invoices --drafts` (and `--state open|paid|closed`) filter correctly; `--client <name>`/`--project <name>` resolve via the browse cache and filter server-side.
-- [ ] Date windows filter on `issue_date` (`--from/--to`, named windows) and `--since` maps to `updated_since`; the resolved range is stamped in the header.
-- [ ] `invoices get <id>` shows all four field groups + line items + payments + messages, with the composed public `web`/`pdf` links; `--raw` dumps untranslated JSON.
-- [ ] Empty list → definitive empty state with broaden/scope hints; `--limit` cap announced (`Showing N of M…`), never silent.
-- [ ] A non-manager token (or simulated `403`) yields a translated `FORBIDDEN` referencing the role requirement — no raw API noise.
+- [x] `invoices` lists against the live account with a totals + by-state header (counts per state, summed `$ amount`/`$ due`, currency), `complete: true`, newest-first rows. _(live: 1504 invoices — draft 3/open 7/paid 1447/closed 47, $24.4M amount / $518.8k due, complete:true; unit-tested rollup + newest-first)_
+- [x] `invoices --drafts` (and `--state open|paid|closed`) filter correctly; `--client <name>`/`--project <name>` resolve via the browse cache and filter server-side. _(live: --drafts → 3; --client "Mobility Data" → 23 with client name resolved; unit: state=draft + client_id=1 carried on the query)_
+- [x] Date windows filter on `issue_date` (`--from/--to`, named windows) and `--since` maps to `updated_since`; the resolved range is stamped in the header. _(live: --last-month → "2026-05-01 → 2026-05-31 (last-month)", 4 invoices)_
+- [x] `invoices get <id>` shows all four field groups + line items + payments + messages, with the composed public `web`/`pdf` links; `--raw` dumps untranslated JSON. _(live: draft 52478541 full detail w/ jarvus.harvestapp.com links; paid 52170740 folded in a $20,700.90 payment + email/view messages; unit: all blocks + --raw single-fetch)_
+- [x] Empty list → definitive empty state with broaden/scope hints; `--limit` cap announced (`Showing N of M…`), never silent. _(live: closed×Mobility Data → "0 invoices found"; --limit 8 → "Showing 8 of 1504"; unit both)_
+- [x] A non-manager token (or simulated `403`) yields a translated `FORBIDDEN` referencing the role requirement — no raw API noise. _(unit: 403 → code FORBIDDEN; live account is a manager so the gate doesn't fire)_
 
 ## Risks / unknowns
 
@@ -43,7 +43,12 @@ issues: []
 
 ## Notes
 
-_(to be filled at closeout)_
+- **Profile cache extended with `base_uri`** (`config.ts` + `identity.ts`): `/v2/company.base_uri` (e.g. `https://jarvus.harvestapp.com`) is now cached at `auth setup`/`whoami`, and `invoices get` composes the public `web`/`pdf` links from it + `client_key`. Pre-existing configs (cached before this change) carry `base_uri: null` — handled gracefully: `get` then emits a `client_key` + "run `whoami --refresh`" note instead of a half-built URL. Refreshed the live config once to populate it.
+- **List date filter is opt-in, not defaulted.** Unlike `review` (which always has a window), `invoices` with no date flag queries all dates (header shows `range: all dates`) — matching how you'd actually browse invoices ("show me all the drafts", not "drafts from the last 7 days"). A window only applies when a date flag is present.
+- **`--since` → `updated_since`** (not `issue_date`), per the API: "recently changed" is the natural meaning of `--since` for invoices, distinct from the `--from/--to` issue-date window.
+- **Messages include `view` events**, not just sends — Harvest logs client opens. The schema renders `event_type` (`(email)` when null = an actual send) so the send/open trail is legible. Verified live on a paid invoice (2 views + 2 emails).
+- **`complete` reflects pagination only** — no client-side filtering happens on the list (all filters are server-side), so it's always the honest pagination signal.
+- 98 → 99 tests (12 in `invoices.test.ts`, incl. the first `403`→FORBIDDEN coverage in the suite).
 
 ## Follow-ups
 
