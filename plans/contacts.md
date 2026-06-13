@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [browse-detail]
 specs:
   - specs/api/reference-data.md
@@ -27,10 +27,10 @@ issues: []
 
 ## Validation
 
-- [ ] `browse contacts` lists contacts `{id,name,client,email,phone}`, paginated to completion; `--client <id|name>` filters via resolved `client_id`.
-- [ ] `browse contacts <id>` shows the full contact record incl. `invoice_recipient_status`; a non-numeric arg → actionable `VALIDATION_ERROR`; a bad id → `NOT_FOUND`.
-- [ ] `browse clients <id|name>` folds in that client's contacts as a `contacts[...]` block (empty → omitted or a clear "no contacts" line).
-- [ ] Definitive empty state when a client has no contacts; manager-gating `403` translates (shared client path).
+- [x] `browse contacts` lists contacts `{id,name,client,email,phone}`, paginated to completion; `--client <id|name>` filters via resolved `client_id`. _(live: --client "Jarvus Innovations" → 0 (scope echoed); unit: client_id=5 on the query + schema)_
+- [x] `browse contacts <id>` shows the full contact record incl. `invoice_recipient_status`; a non-numeric arg → actionable `VALIDATION_ERROR`; a bad id → `NOT_FOUND`. _(live: contact 12468284 → recipient status; non-numeric "John" → exit 2 no fetch; unit both + NOT_FOUND via shared client path)_
+- [x] `browse clients <id|name>` folds in that client's contacts as a `contacts[...]` block (empty → omitted or a clear "no contacts" line). _(live: "Sound Transit" → 4 contacts incl. Accounts Payable; unit: fold-in block)_
+- [x] Definitive empty state when a client has no contacts; manager-gating `403` translates (shared client path). _(live empty + unit "no contacts on this client"; 403 is the shared translation, unit-tested in invoices.test)_
 
 ## Risks / unknowns
 
@@ -39,7 +39,11 @@ issues: []
 
 ## Notes
 
-_(to be filled at closeout)_
+- **Contacts are id-keyed, not name-resolved** (kept out of the resolver — person names aren't unique handles). `browse contacts <id>` requires a numeric id; a non-numeric arg fails fast with a hint to `browse contacts --client "<name>"` to find ids.
+- **Client detail fold-in adds a second fetch** (`contacts?client_id=`), mirroring the project→task-assignments pattern. Empty → a `contacts: no contacts on this client` line rather than a silent omission. This changed `clientDetail`'s fetch count, so the existing client-detail unit test was updated to mock the second call.
+- **Phone column prefers office, falls back to mobile** in the list view; detail shows both.
+- Live "Sound Transit" has 4 contacts incl. an Accounts Payable entry with `invoice_recipient_status: recipient` — exactly the invoice-recipient context this surfaces.
+- +5 tests (browse suite 16 total).
 
 ## Follow-ups
 
