@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [browse]
 specs:
   - specs/api/reference-data.md
@@ -29,13 +29,13 @@ issues: []
 
 ## Validation
 
-- [ ] `browse users` lists active users with `{id,name,email,roles,active}`, paginated to completion; `--all` includes inactive.
-- [ ] `browse <clients|projects|tasks|users> <id|name>` each return the full detail record; a name resolves via the cache, a numeric id passes through, an ambiguous name → candidates, a bad id → `NOT_FOUND`.
-- [ ] `browse projects <id|name>` folds in the project's task assignments (`tasks[...]` block) from `/v2/projects/{id}/task_assignments` — the data previously requiring a raw call.
-- [ ] `browse users me` (and the `me` shorthand) resolves the authenticated user via `/v2/users/me` (works for any role, unlike the manager-gated list).
-- [ ] `--since <dur>` on each list filters to recently-updated entities (maps to `updated_since`); the lists otherwise paginate to completion.
-- [ ] `user` detail renders `weekly_capacity` in hours (not raw seconds); `client` detail surfaces `currency`/`address`/`statement_key`.
-- [ ] A Member token (or simulated `403`) on a manager-gated list/detail → translated `FORBIDDEN`; the self path (`browse users me`, `browse mine`) still works.
+- [x] `browse users` lists active users with `{id,name,email,roles,active}`, paginated to completion; `--all` includes inactive. _(live: 18 active users; unit-tested schema + name/roles)_
+- [x] `browse <clients|projects|tasks|users> <id|name>` each return the full detail record; a name resolves via the cache, a numeric id passes through, an ambiguous name → candidates, a bad id → `NOT_FOUND`. _(live: client "Jarvus Innovations", task "Development", user me; bad id → NOT_FOUND exit 1; unit: client detail + NOT_FOUND)_
+- [x] `browse projects <id|name>` folds in the project's task assignments (`tasks[...]` block) from `/v2/projects/{id}/task_assignments` — the data previously requiring a raw call. _(live: "API Test" → project block + 9 task assignments; unit: numeric-id path, 2-fetch, tasks block rendered)_
+- [x] `browse users me` (and the `me` shorthand) resolves the authenticated user via `/v2/users/me` (works for any role, unlike the manager-gated list). _(live: Chris Alfano, capacity 40h; unit asserts the /users/me URL)_
+- [x] `--since <dur>` on each list filters to recently-updated entities (maps to `updated_since`); the lists otherwise paginate to completion. _(live: `projects --since 7d` → only API Test; unit asserts updated_since on the query)_
+- [x] `user` detail renders `weekly_capacity` in hours (not raw seconds); `client` detail surfaces `currency`/`address`/`statement_key`. _(live: me=40h; unit: 126000s → 35h; client currency/statement_key live)_
+- [x] A Member token (or simulated `403`) on a manager-gated list/detail → translated `FORBIDDEN`; the self path (`browse users me`, `browse mine`) still works. _(403 translation is the shared client path, unit-tested in invoices.test; live account is admin so the gate doesn't fire; self path live via `users me`)_
 
 ## Risks / unknowns
 
@@ -45,7 +45,16 @@ issues: []
 
 ## Notes
 
-_(to be filled at closeout)_
+- **Detail dispatch is a trailing positional**, parsed in a shared `parseArgs` that separates non-`--` tokens (the id/name) from flags — so `browse projects --client X` stays a filtered list while `browse projects "API Test"` is detail. Clean and unsurprising.
+- **`--since` reuses `parseRange({since})`** rather than a bespoke parser — its `from` (YYYY-MM-DD) becomes `updated_since=<from>T00:00:00Z`. Bad durations throw the same VALIDATION_ERROR as everywhere else. (Initially reached for the private `parseSince`; the public `parseRange` already does it correctly and returns a formatted date string, avoiding a `Date`-stringify bug.)
+- **`browse mine` vs `browse users me`** are deliberately distinct and both kept: `mine` = my project assignments (logging targets), `users me` = my user record. Help documents both.
+- **Project detail folds in task assignments** via a second `paginateAll` to `/v2/projects/{id}/task_assignments` — this is the gap that forced a raw `curl` earlier; now `browse projects "API Test"` shows the project + all 9 billable tasks in one call.
+- **`weekly_capacity`** comes from the API in seconds; rendered as hours (126000 → 35).
+- 112 → 121 tests across this plan + reports-uninvoiced (browse: +6).
+
+## Follow-ups absorbed
+
+- The global `GET /v2/task_assignments` (cross-project) remains unsurfaced — only the per-project fold-in is built (noted below).
 
 ## Follow-ups
 
