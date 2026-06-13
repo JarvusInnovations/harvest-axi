@@ -97,3 +97,75 @@ describe("reports uninvoiced", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+describe("reports expenses", () => {
+  it("aggregates an expenses axis with the right identity column and totals", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      resultsPage([
+        { project_id: 1, project_name: "Alpha", client_name: "AcmeCo", total_amount: 100, billable_amount: 80, currency: "USD" },
+        { project_id: 2, project_name: "Beta", client_name: "BetaCo", total_amount: 250, billable_amount: 250, currency: "USD" },
+      ]),
+    );
+    const out = await reportsCommand(["expenses", "projects", "--this-month"]);
+    expect(out).toContain("report: expenses projects");
+    expect(out).toContain("total_amount: 350 USD");
+    expect(out).toContain("expenses_projects[2]{project,client,total,billable}:");
+    // Beta (250) sorts before Alpha (100)
+    expect(out.indexOf("Beta")).toBeLessThan(out.indexOf("Alpha"));
+    expect(String(spy.mock.calls[0]?.[0])).toContain("/reports/expenses/projects");
+  });
+
+  it("uses the category identity column for the categories axis", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      resultsPage([{ expense_category_id: 7, expense_category_name: "Travel", total_amount: 40, billable_amount: 40, currency: "USD" }]),
+    );
+    const out = await reportsCommand(["expenses", "categories", "--this-month"]);
+    expect(out).toContain("expenses_categories[1]{category,total,billable}:");
+    expect(out).toContain("Travel");
+  });
+
+  it("rejects an unknown expenses axis", async () => {
+    await expect(reportsCommand(["expenses", "widgets"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("errors when expenses is given no axis", async () => {
+    await expect(reportsCommand(["expenses"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("gives a definitive empty state", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(resultsPage([]));
+    const out = await reportsCommand(["expenses", "team", "--today"]);
+    expect(out).toContain("0 expenses recorded");
+  });
+});
+
+describe("reports budget", () => {
+  it("snapshots projects sorted by remaining ascending, showing budget_by", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      resultsPage([
+        { project_id: 1, project_name: "Healthy", client_name: "AcmeCo", budget_by: "project", budget: 100, budget_spent: 20, budget_remaining: 80, is_active: true },
+        { project_id: 2, project_name: "OverBudget", client_name: "BetaCo", budget_by: "project_cost", budget: 100, budget_spent: 150, budget_remaining: -50, is_active: true },
+      ]),
+    );
+    const out = await reportsCommand(["budget"]);
+    expect(out).toContain("report: budget");
+    expect(out).toContain("budget[2]{project,client,budget_by,budget,spent,remaining,active}:");
+    // most at-risk (remaining -50) on top
+    expect(out.indexOf("OverBudget")).toBeLessThan(out.indexOf("Healthy"));
+    // active-only default → is_active=true filter on the query
+    expect(String(spy.mock.calls[0]?.[0])).toContain("is_active=true");
+    expect(String(spy.mock.calls[0]?.[0])).toContain("/reports/project_budget");
+  });
+
+  it("includes inactive with --all (no is_active filter)", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(resultsPage([]));
+    await reportsCommand(["budget", "--all"]);
+    expect(String(spy.mock.calls[0]?.[0])).not.toContain("is_active");
+  });
+
+  it("rejects a date window (it's a snapshot) before any call", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(reportsCommand(["budget", "--last-month"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
