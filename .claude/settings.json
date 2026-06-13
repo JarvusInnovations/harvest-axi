@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/chris/.agents/skills/specops/scripts/specops.mjs\"",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/skills/specops/scripts/specops",
             "timeout": 10
           }
         ]
