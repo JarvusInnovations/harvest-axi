@@ -44,14 +44,16 @@ Every write here produces or mutates a **`draft`**. The agent never finalizes, s
 
 Required: `--client <id|name>`. New invoices are born `draft`. Two modes:
 
-- **Free-form** (default): one or more `--line "<kind>|<unit_price>|<quantity>|<description>"` items (or a simpler repeatable flag set — exact surface settled in the plan), plus optional `--subject`, `--notes`, `--issue-date`, `--due-date`, `--payment-term`, `--tax`, `--discount`, `--po`.
+- **Free-form** (default): one or more `--line "<kind>|<unit_price>|<quantity>|<description>|<project>"` items, plus optional `--subject`, `--notes`, `--issue-date`, `--due-date`, `--payment-term`, `--tax`, `--discount`, `--po`, `--payment-options`.
+  - The trailing `<project>` segment is **optional** and links the line item to a project (`project_id` per [api/invoices](../api/invoices.md#create--post-v2invoices)) — `id|name` resolved via the [browse](browse.md) cache, like `--client`. Omit it (and its leading `|`) for an unlinked line. A line linked to a project lets Harvest's reports/exports attribute the billing; matching the project across the invoices in a PO series keeps them consistent.
+  - `--payment-options <list>` — comma-separated subset of `ach,credit_card,paypal` enabling client-facing online payment. Values not enabled on the account return a translated `422`.
 - **From tracked time/expenses** — `--from-tracked`: requires `--project <id|name>` (≥1, repeatable) → `project_ids`; `--summary <project|task|people|detailed>` (default `project`); optional `--from/--to` window (omitted → all unbilled). Turns [`review`](review.md)'s data into a draft. Expenses import is available via `--expenses` with its own summary type.
 
-Returns the created draft's id + a summary, and a suggestion to `invoices get <id>` to review it.
+Returns the created draft's id + a summary that **echoes the resulting line items with their project link**, plus a suggestion to `invoices get <id>` to review it — so the project linkage is confirmable without a follow-up read (`--raw` should never be needed to see whether a line is linked).
 
 ### `invoices edit <id>` — **draft-only**
 
-PATCHes supplied top-level fields (`--subject`, `--notes`, `--issue-date`, `--due-date`, `--payment-term`, `--tax`, `--discount`, `--po`) and line-item operations (add / edit-by-id / remove-by-id via `_destroy`). **Guard:** a `GET` precedes the write; if `state !== "draft"` the command fails with a `VALIDATION_ERROR` (`invoice #<id> is "<state>", not a draft — harvest-axi only edits drafts`). No network mutation occurs on a non-draft.
+PATCHes supplied top-level fields (`--subject`, `--notes`, `--issue-date`, `--due-date`, `--payment-term`, `--tax`, `--discount`, `--po`, `--payment-options`) and line-item operations (add via `--line` / edit-by-id / remove-by-id via `_destroy`). `--update-line "<id>|<kind>|<unit_price>|<quantity>|<description>|<project>"` carries the same optional trailing `<project>` segment as `--line` (blank = leave the existing link unchanged), so a line's project can be set or changed on an existing draft. As with `create`, the result summary echoes the updated line items with their project link. **Guard:** a `GET` precedes the write; if `state !== "draft"` the command fails with a `VALIDATION_ERROR` (`invoice #<id> is "<state>", not a draft — harvest-axi only edits drafts`). No network mutation occurs on a non-draft.
 
 ### `invoices delete <id>` — **draft-only**
 
