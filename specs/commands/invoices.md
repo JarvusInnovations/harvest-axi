@@ -55,6 +55,12 @@ Returns the created draft's id + a summary that **echoes the resulting line item
 
 PATCHes supplied top-level fields (`--subject`, `--notes`, `--issue-date`, `--due-date`, `--payment-term`, `--tax`, `--discount`, `--po`, `--payment-options`) and line-item operations (add via `--line` / edit-by-id / remove-by-id via `_destroy`). `--update-line "<id>|<kind>|<unit_price>|<quantity>|<description>|<project>"` carries the same optional trailing `<project>` segment as `--line` (blank = leave the existing link unchanged), so a line's project can be set or changed on an existing draft. As with `create`, the result summary echoes the updated line items with their project link. **Guard:** a `GET` precedes the write; if `state !== "draft"` the command fails with a `VALIDATION_ERROR` (`invoice #<id> is "<state>", not a draft — harvest-axi only edits drafts`). No network mutation occurs on a non-draft.
 
+**`payment_options` preservation.** Harvest does **not** apply partial-update semantics to `payment_options`: a `PATCH` that omits the field clears it to `[]` (server-side — see [api/invoices](../api/invoices.md#payment_options-is-not-partial-update)). Every other top-level field (`tax`, `discount`, `currency`, …) and the line items survive an unrelated edit; `payment_options` alone is reset. So when `--payment-options` is **not** passed, `edit` **re-sends the draft's existing `payment_options`** (read from the guard's `GET`) to preserve them. Consequences:
+
+- Any unrelated edit (`--po`, `--notes`, `--update-line`, …) leaves an enabled ACH/credit-card/PayPal selection intact.
+- `--payment-options ach,credit_card` still replaces the set.
+- `--payment-options ""` (empty) is the explicit way to **clear** all options — distinct from omitting the flag (preserve).
+
 ### `invoices delete <id>` — **draft-only**
 
 Same draft guard. Idempotent: an already-absent id is a no-op exit 0. A non-draft invoice → `VALIDATION_ERROR`, never deleted.

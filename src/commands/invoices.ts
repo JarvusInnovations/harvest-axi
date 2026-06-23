@@ -675,8 +675,9 @@ async function invoiceCreate(args: string[]): Promise<string> {
 
 async function invoiceEdit(id: string, args: string[]): Promise<string> {
   const f = parseWriteFlags(args);
-  // Guard first — no mutation on a non-draft.
-  await requireDraft(id, "edit");
+  // Guard first — no mutation on a non-draft. The guard's GET is also the source
+  // for payment_options preservation below (no extra round-trip).
+  const current = await requireDraft(id, "edit");
 
   const body = buildTopLevel(f);
   // Parse everything synchronously first (syntax fail-fast), then resolve the
@@ -695,6 +696,19 @@ async function invoiceEdit(id: string, args: string[]): Promise<string> {
     throw new AxiError("`invoices edit` needs at least one field or line change", "VALIDATION_ERROR", [
       "e.g. --notes, --subject, --due-date, --line, --update-line, --remove-line",
     ]);
+  }
+
+  // Harvest clears payment_options on any PATCH that omits the field (it is NOT
+  // partial-update — unlike every other field). When --payment-options wasn't
+  // passed, re-send the draft's existing options so an unrelated edit doesn't
+  // silently drop ACH/credit-card/PayPal. `--payment-options ""` (sets [] in
+  // buildTopLevel) remains the explicit clear path. See spec + issue #9.
+  if (
+    f.paymentOptions === undefined &&
+    Array.isArray(current.payment_options) &&
+    current.payment_options.length > 0
+  ) {
+    body.payment_options = current.payment_options;
   }
 
   const updated = await harvestRequest<Record<string, unknown>>(`invoices/${id}`, { method: "PATCH", body });
