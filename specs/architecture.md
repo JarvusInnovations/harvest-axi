@@ -39,7 +39,7 @@ The `output/` and `time/` modules are reusable infrastructure copied in spirit f
 - Config dir: `$XDG_CONFIG_HOME/harvest-axi` or `~/.config/harvest-axi`.
 - `config.json` — `{ version, account_id, token, default_user_id, profile_cache }`. Token is a Harvest Personal Access Token.
 - Env overrides (take precedence, for CI/cron): `HARVEST_ACCOUNT_ID`, `HARVEST_ACCESS_TOKEN`.
-- `HARVEST_AXI_DISABLE_HOOKS=1` disables session-hook auto-install (mirrors `GWS_AXI_DISABLE_HOOKS`).
+- Session hooks install only via the explicit `setup hooks` command (see [`commands/setup.md`](commands/setup.md)) — never as a side effect of other commands.
 
 ## Build & distribution
 
