@@ -22,6 +22,7 @@ Mint a Personal Access Token at <https://id.getharvest.com/developers>. The acco
 | `harvest-axi review [scope] [window] --by <axis>` | Period rollups — the headline |
 | `harvest-axi browse clients\|projects\|tasks\|mine` | Reference data + what you can log against |
 | `harvest-axi entries today\|get\|log\|edit\|delete\|start\|stop` | Read + edit your time entries |
+| `harvest-axi invoices [get\|create\|edit\|delete]` | Review invoices + a draft workbench (Admin/Manager) |
 | `harvest-axi auth\|doctor` | Credentials + health |
 | `harvest-axi setup hooks` | Install/repair the SessionStart ambient hook |
 
@@ -29,7 +30,27 @@ Mint a Personal Access Token at <https://id.getharvest.com/developers>. The acco
 harvest-axi review --team --this-week
 harvest-axi review --client "Acme" --last-month --by project
 harvest-axi entries log --project "GTFS Pathways" --task "T2: Project Management" --hours 1.5
+harvest-axi invoices create --client "Acme" --line "Service|17000|1|Milestone 3|PA-PERMIT" --payment-options ach
 ```
+
+### Invoices — a draft workbench
+
+`harvest-axi invoices` lists/reviews invoices and builds **drafts** — it never sends, finalizes, closes, or records payments (do those in Harvest). Create free-form or `--from-tracked` time; `edit`/`delete` act on drafts only.
+
+Line items can link to a **project** via a trailing segment on `--line`/`--update-line` (`kind|unit_price|qty|desc|project`). The project accepts an **id or name** — resolved to Harvest's `project_id` — and reads back as the project's **name**:
+
+```sh
+# create with a project-linked line (name or id both work for the trailing segment)
+harvest-axi invoices create --client "Acme" --line "Service|17000|1|Milestone 3|PA-PERMIT"
+
+# add/change a line's project on an existing draft (blank segments are left unchanged)
+harvest-axi invoices edit 12345 --update-line "67890|||||PA-PERMIT"
+
+# enable online payment options (ach,credit_card,paypal) on a draft
+harvest-axi invoices edit 12345 --payment-options ach,credit_card
+```
+
+A line's project must belong to the invoice's client and be billable, or Harvest rejects the change.
 
 Run `harvest-axi <command> --help` for any command's full flag reference.
 
