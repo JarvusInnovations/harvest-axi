@@ -1,4 +1,4 @@
-import { AxiError, installSessionStartHooks } from "axi-sdk-js";
+import { AxiError } from "axi-sdk-js";
 import {
   clearConfig,
   readConfig,
@@ -8,21 +8,6 @@ import {
 } from "../config.js";
 import { fetchAccounts, whoMe } from "../harvest/identity.js";
 import { renderObject } from "../output/index.js";
-
-/**
- * Install/repair the SessionStart hook so the home view loads ambiently. Called
- * only from `auth setup` (explicit opt-in, per AXI principle 7). Idempotent and
- * self-repairing via the SDK; gated by HARVEST_AXI_DISABLE_HOOKS. Returns a
- * human status for the setup output.
- */
-function installHooks(): string {
-  if (process.env.HARVEST_AXI_DISABLE_HOOKS === "1") {
-    return "disabled (HARVEST_AXI_DISABLE_HOOKS=1)";
-  }
-  let error: string | undefined;
-  installSessionStartHooks({ onError: (m) => (error = m) });
-  return error ? `not installed (${error})` : "installed/repaired (Claude Code + Codex)";
-}
 
 export const AUTH_HELP = `usage: harvest-axi auth <subcommand> [flags]
 subcommands[3]:
@@ -108,7 +93,6 @@ async function authSetup(flags: SetupFlags): Promise<string> {
         status: "already connected (revalidated)",
         account: profile.account_name,
         user: profile.user_name,
-        session_hook: installHooks(),
       });
     }
     // Unconfigured + no token: fail fast with the instruction (not a prompt).
@@ -163,7 +147,6 @@ async function authSetup(flags: SetupFlags): Promise<string> {
     user: profile.user_name,
     week_start_day: profile.week_start_day ?? "unknown",
     timer_mode: profile.wants_timestamp_timers ? "start/end" : "duration",
-    session_hook: installHooks(),
   });
 }
 

@@ -18,8 +18,6 @@ beforeEach(() => {
   vi.stubEnv("XDG_CONFIG_HOME", mkdtempSync(join(tmpdir(), "harvest-axi-")));
   vi.stubEnv("HARVEST_ACCESS_TOKEN", "");
   vi.stubEnv("HARVEST_ACCOUNT_ID", "");
-  // Never touch the real ~/.claude during setup tests.
-  vi.stubEnv("HARVEST_AXI_DISABLE_HOOKS", "1");
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -111,15 +109,13 @@ describe("auth setup", () => {
     expect(cfg.account_id).toBe("999");
   });
 
-  it("revalidates + reports the hook status when re-run with no token while already configured", async () => {
+  it("revalidates when re-run with no token while already configured", async () => {
     writeConfig({ version: 1, account_id: "1", token: "tok" });
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse(ME))
       .mockResolvedValueOnce(jsonResponse(COMPANY));
     const out = await authCommand(["setup"]);
     expect(out).toContain("already connected (revalidated)");
-    expect(out).toContain("session_hook");
-    expect(out).toContain("disabled"); // HARVEST_AXI_DISABLE_HOOKS=1 in tests
   });
 
   it("is idempotent: re-running with the same creds re-validates and reports connected", async () => {
