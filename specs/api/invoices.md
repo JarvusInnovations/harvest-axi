@@ -77,6 +77,12 @@ Returns `200 OK`. Partial — unspecified fields are left unchanged. Accepts the
 - **edit** — line item object **with** its `id` + changed fields
 - **delete** — `{"id": <id>, "_destroy": true}`
 
+<a id="payment_options-is-not-partial-update"></a>
+
+### `payment_options` is NOT partial-update
+
+Despite the partial-update rule above, **`payment_options` is the one exception**: a `PATCH` that omits it resets it to `[]` server-side. Verified empirically against a live draft — an edit touching only `purchase_order` cleared an enabled `["ach"]` to `[]`, while `tax`/`tax2`/`discount`/`currency` and the line items all survived the same request. Any client doing a partial edit must **re-send the current `payment_options`** to preserve them; harvest-axi's `edit` does this from the draft-guard `GET` (see [commands/invoices](../commands/invoices.md#invoices-edit-id--draft-only)).
+
 ## DELETE — `DELETE /v2/invoices/{id}`
 
 Returns `200 OK`.

@@ -313,6 +313,51 @@ describe("invoices edit/delete — draft guard", () => {
     expect(body.line_items).toEqual([{ id: 777, project_id: 5 }]);
   });
 
+  it("preserves payment_options on an unrelated edit (re-sends from the guard GET) — #9", async () => {
+    const withOpts = { ...draft, payment_options: ["ach"] };
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 })) // guard GET
+      .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 })); // PATCH
+    await invoicesCommand(["edit", "5", "--po", "4300865049"]);
+    const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
+    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    expect(body.purchase_order).toBe("4300865049");
+    expect(body.payment_options).toEqual(["ach"]); // re-sent so Harvest doesn't clear it
+  });
+
+  it("does not add payment_options when the draft has none", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard (no payment_options)
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })); // PATCH
+    await invoicesCommand(["edit", "5", "--po", "X"]);
+    const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
+    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    expect("payment_options" in body).toBe(false);
+  });
+
+  it("--payment-options replaces, and \"\" explicitly clears", async () => {
+    const withOpts = { ...draft, payment_options: ["ach"] };
+    // replace
+    let spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 }));
+    await invoicesCommand(["edit", "5", "--payment-options", "credit_card"]);
+    let body = JSON.parse((spy.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PATCH")?.[1] as RequestInit).body as string);
+    expect(body.payment_options).toEqual(["credit_card"]);
+    vi.restoreAllMocks();
+    // explicit clear
+    spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 }));
+    await invoicesCommand(["edit", "5", "--payment-options", ""]);
+    body = JSON.parse((spy.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PATCH")?.[1] as RequestInit).body as string);
+    expect(body.payment_options).toEqual([]);
+  });
+
   it("refuses to edit a non-draft and never PATCHes", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(paid), { status: 200 }));
     await expect(invoicesCommand(["edit", "6", "--notes", "x"])).rejects.toThrow(/not a draft/);
