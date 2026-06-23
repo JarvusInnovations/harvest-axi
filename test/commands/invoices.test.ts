@@ -189,6 +189,69 @@ describe("invoices create", () => {
     expect(body.line_items).toEqual([{ kind: "Service", unit_price: 200, quantity: 10, description: "May work" }]);
   });
 
+  it("resolves a line's trailing project segment to project_id and echoes it", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients")) // resolve client
+      .mockResolvedValueOnce(listPage([{ id: 5, name: "PA Permit Navigator" }], "projects")) // resolve project
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 99, number: "1", state: "draft", amount: 17000, client: { id: 1, name: "Acme" },
+            line_items: [{ id: 11, kind: "Service", description: "Public Beta (M3)", quantity: 1, unit_price: 17000, amount: 17000, project: { id: 5, name: "PA Permit Navigator" } }],
+          }),
+          { status: 201 },
+        ),
+      );
+    const out = await invoicesCommand(["create", "--client", "Acme", "--line", "Service|17000|1|Public Beta (M3)|PA Permit"]);
+    const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
+    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    expect(body.line_items).toEqual([
+      { kind: "Service", unit_price: 17000, quantity: 1, description: "Public Beta (M3)", project_id: 5 },
+    ]);
+    // The result summary echoes the line with its project link (no follow-up get needed).
+    expect(out).toContain("line_items[1]{id,kind,description,project,quantity,unit_price,amount}:");
+    expect(out).toContain("PA Permit Navigator");
+  });
+
+  it("fails on an unknown line project before any POST", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients")) // client
+      .mockResolvedValueOnce(listPage([{ id: 5, name: "Other" }], "projects")); // project cache — no match
+    await expect(
+      invoicesCommand(["create", "--client", "Acme", "--line", "Service|1|1|x|Nonexistent"]),
+    ).rejects.toThrow();
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "POST")).toBe(false);
+  });
+
+  it("rejects a --line with a | in the description (over-segmented)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients"));
+    await expect(
+      invoicesCommand(["create", "--client", "Acme", "--line", "Service|1|1|a|b|c"]),
+    ).rejects.toThrow(/too many .* segments/);
+  });
+
+  it("validates --payment-options vocabulary and sets the array", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 99, state: "draft", amount: 1, client: { id: 1, name: "Acme" }, line_items: [{}] }), { status: 201 }));
+    await invoicesCommand(["create", "--client", "Acme", "--line", "Service|1|1|x", "--payment-options", "ach,credit_card"]);
+    const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
+    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    expect(body.payment_options).toEqual(["ach", "credit_card"]);
+  });
+
+  it("rejects an invalid --payment-options token before any POST", async () => {
+    // Numeric client id short-circuits resolution, so no fetch precedes the throw.
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invoicesCommand(["create", "--client", "1", "--line", "Service|1|1|x", "--payment-options", "venmo"]),
+    ).rejects.toThrow(/--payment-options got "venmo"/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it("builds line_items_import for --from-tracked", async () => {
     const spy = vi.spyOn(globalThis, "fetch");
     spy
@@ -235,6 +298,19 @@ describe("invoices edit/delete — draft guard", () => {
       { kind: "Service", unit_price: 10, quantity: 1, description: "x" },
       { id: 777, _destroy: true },
     ]);
+  });
+
+  it("sets a project on an existing line via --update-line without touching other fields", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard GET
+      .mockResolvedValueOnce(listPage([{ id: 5, name: "PA Permit Navigator" }], "projects")) // resolve project
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...draft, line_items: [{ id: 777, project: { id: 5, name: "PA Permit Navigator" } }] }), { status: 200 })); // PATCH
+    await invoicesCommand(["edit", "5", "--update-line", "777|||||PA Permit"]);
+    const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
+    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    // Only id + project_id — blank kind/price/qty/desc segments are left unchanged.
+    expect(body.line_items).toEqual([{ id: 777, project_id: 5 }]);
   });
 
   it("refuses to edit a non-draft and never PATCHes", async () => {
