@@ -31,8 +31,11 @@ create/edit fields:
   --subject <text>  --notes <text>  --po <text>
   --issue-date <date>  --due-date <date>  --payment-term <term>
   --tax <pct>  --tax2 <pct>  --discount <pct>  --currency <code>
-  --line "<kind>|<unit_price>|<qty>|<desc>"     add a line (repeatable)
-  --update-line "<id>|<kind>|<unit_price>|<qty>|<desc>"  edit a line (blank=keep)
+  --payment-options <list> comma-separated: ach,credit_card,paypal
+  --line "<kind>|<unit_price>|<qty>|<desc>|<project>"  add a line (repeatable;
+                           trailing project is optional, id|name resolved)
+  --update-line "<id>|<kind>|<unit_price>|<qty>|<desc>|<project>"  edit a line
+                           (blank segment = keep; trailing project optional)
   --remove-line <id>       delete a line (repeatable)
 create --from-tracked (build a draft from tracked time/expenses):
   --from-tracked           import mode
@@ -46,7 +49,7 @@ NOT supported by design (do these in Harvest): send/email, mark-as-sent,
 examples:
   harvest-axi invoices --drafts
   harvest-axi invoices get 13150403
-  harvest-axi invoices create --client "Caltrans" --line "Service|200|10|May work"
+  harvest-axi invoices create --client "Caltrans" --line "Service|200|10|May work|GTFS"
   harvest-axi invoices create --client "Acme" --from-tracked --project "GTFS" --last-month
   harvest-axi invoices edit 13150403 --notes "revised" --remove-line 998877
   harvest-axi invoices delete 13150403
@@ -378,6 +381,7 @@ interface WriteFlags {
   issueDate?: string;
   dueDate?: string;
   paymentTerm?: string;
+  paymentOptions?: string;
   currency?: string;
   tax?: string;
   tax2?: string;
@@ -407,6 +411,7 @@ function parseWriteFlags(args: string[]): WriteFlags {
       case "--issue-date": f.issueDate = n; i++; break;
       case "--due-date": f.dueDate = n; i++; break;
       case "--payment-term": f.paymentTerm = n; i++; break;
+      case "--payment-options": f.paymentOptions = n; i++; break;
       case "--currency": f.currency = n; i++; break;
       case "--tax": f.tax = n; i++; break;
       case "--tax2": f.tax2 = n; i++; break;
@@ -426,6 +431,25 @@ function parseWriteFlags(args: string[]): WriteFlags {
   return f;
 }
 
+const PAYMENT_OPTIONS = ["ach", "credit_card", "paypal"] as const;
+
+/**
+ * Parse `--payment-options ach,credit_card` into a validated array. We can only
+ * check the vocabulary client-side — an option valid here but not enabled on the
+ * account surfaces a translated Harvest 422 at write time.
+ */
+function parsePaymentOptions(value: string): string[] {
+  const opts = value.split(",").map((s) => s.trim()).filter(Boolean);
+  for (const o of opts) {
+    if (!(PAYMENT_OPTIONS as readonly string[]).includes(o)) {
+      throw new AxiError(`--payment-options got "${o}"`, "VALIDATION_ERROR", [
+        `Valid options: ${PAYMENT_OPTIONS.join(", ")}`,
+      ]);
+    }
+  }
+  return opts;
+}
+
 /** Parse a number flag or throw a clear VALIDATION_ERROR (percentages, prices). */
 function numFlag(name: string, value: string): number {
   const v = Number(value);
@@ -436,12 +460,31 @@ function numFlag(name: string, value: string): number {
 }
 
 /**
- * Parse a `--line "kind|unit_price|qty|desc"` spec into a line-item body.
- * kind + unit_price are required; qty defaults to 1; desc optional.
+ * A parsed line spec: the line-item body plus the optional raw `project` token
+ * (id|name) to resolve to `project_id` before any mutation. Project resolution
+ * is async and batched separately so syntax parsing stays synchronous/fail-fast.
  */
-function parseLineItem(spec: string): Record<string, unknown> {
+interface ParsedLine {
+  item: Record<string, unknown>;
+  project?: string;
+}
+
+/**
+ * Parse a `--line "kind|unit_price|qty|desc|project"` spec into a line-item body.
+ * kind + unit_price are required; qty defaults to 1; desc + project optional.
+ * The trailing project is positional-last, so a literal `|` in the description
+ * is unsupported — an over-segmented spec errors loudly rather than silently
+ * treating a desc fragment as the project.
+ */
+function parseLineItem(spec: string): ParsedLine {
   const parts = spec.split("|").map((s) => s.trim());
-  const [kind, unitPrice, qty, desc] = parts;
+  if (parts.length > 5) {
+    throw new AxiError(`--line has too many "|" segments (max 5: kind|unit_price|qty|desc|project) — got "${spec}"`, "VALIDATION_ERROR", [
+      "A literal | in the description isn't supported — remove it",
+      'Format: --line "Service|200|10|May consulting|GTFS"',
+    ]);
+  }
+  const [kind, unitPrice, qty, desc, project] = parts;
   if (!kind || !unitPrice) {
     throw new AxiError(`--line needs at least "kind|unit_price" — got "${spec}"`, "VALIDATION_ERROR", [
       'Example: --line "Service|200|10|May consulting"',
@@ -450,13 +493,19 @@ function parseLineItem(spec: string): Record<string, unknown> {
   const item: Record<string, unknown> = { kind, unit_price: numFlag("unit_price", unitPrice) };
   if (qty) item.quantity = numFlag("quantity", qty);
   if (desc) item.description = desc;
-  return item;
+  return { item, project: project || undefined };
 }
 
-/** Parse `--update-line "id|kind|unit_price|qty|desc"` — blank fields are left unchanged. */
-function parseUpdateLine(spec: string): Record<string, unknown> {
+/** Parse `--update-line "id|kind|unit_price|qty|desc|project"` — blank fields are left unchanged. */
+function parseUpdateLine(spec: string): ParsedLine {
   const parts = spec.split("|").map((s) => s.trim());
-  const [id, kind, unitPrice, qty, desc] = parts;
+  if (parts.length > 6) {
+    throw new AxiError(`--update-line has too many "|" segments (max 6: id|kind|unit_price|qty|desc|project) — got "${spec}"`, "VALIDATION_ERROR", [
+      "A literal | in the description isn't supported — remove it",
+      'Format: --update-line "998877|Service|220||revised rate|GTFS"',
+    ]);
+  }
+  const [id, kind, unitPrice, qty, desc, project] = parts;
   if (!id || !/^\d+$/.test(id)) {
     throw new AxiError(`--update-line needs a numeric line id first — got "${spec}"`, "VALIDATION_ERROR", [
       'Example: --update-line "998877|Service|220||revised rate"',
@@ -467,7 +516,28 @@ function parseUpdateLine(spec: string): Record<string, unknown> {
   if (unitPrice) item.unit_price = numFlag("unit_price", unitPrice);
   if (qty) item.quantity = numFlag("quantity", qty);
   if (desc) item.description = desc;
-  return item;
+  return { item, project: project || undefined };
+}
+
+/**
+ * Resolve each parsed line's optional project token to `project_id`, returning
+ * the line-item bodies. Unique tokens are resolved once, in parallel, **before**
+ * any mutation — an unknown/ambiguous name fails fast with candidates rather
+ * than producing a partially-linked draft. A blank token leaves the key unset
+ * (on `--update-line` that means "keep the existing link").
+ */
+async function resolveLineProjects(lines: ParsedLine[]): Promise<Record<string, unknown>[]> {
+  const tokens = [...new Set(lines.map((l) => l.project).filter((t): t is string => !!t))];
+  const ids = new Map<string, number>();
+  await Promise.all(
+    tokens.map(async (t) => {
+      ids.set(t, (await resolveEntity("project", t)).id);
+    }),
+  );
+  return lines.map(({ item, project }) => {
+    if (project) item.project_id = ids.get(project);
+    return item;
+  });
 }
 
 /** Build the shared top-level body (subject/notes/dates/tax/...) from flags. */
@@ -476,6 +546,7 @@ function buildTopLevel(f: WriteFlags): Record<string, unknown> {
   if (f.subject !== undefined) body.subject = f.subject;
   if (f.notes !== undefined) body.notes = f.notes;
   if (f.po !== undefined) body.purchase_order = f.po;
+  if (f.paymentOptions !== undefined) body.payment_options = parsePaymentOptions(f.paymentOptions);
   if (f.issueDate) body.issue_date = f.issueDate;
   if (f.paymentTerm) body.payment_term = f.paymentTerm;
   if (f.currency) body.currency = f.currency;
@@ -519,15 +590,31 @@ async function requireDraft(id: string, action: string): Promise<Record<string, 
 }
 
 function createdSummary(status: string, inv: Record<string, unknown>): string {
-  return renderObject({
+  const lineItems = (inv.line_items as Record<string, unknown>[]) ?? [];
+  const header = renderObject({
     status,
     id: inv.id,
     number: inv.number ?? "—",
     state: inv.state,
     client: nestedName(inv, "client"),
     amount: money2(num(inv.amount)),
-    line_items: Array.isArray(inv.line_items) ? inv.line_items.length : 0,
+    line_items: lineItems.length,
   });
+  if (lineItems.length === 0) return header;
+  // Echo the resulting lines with their project link so the linkage is
+  // confirmable without a follow-up `get` (or `--raw`).
+  return joinBlocks(
+    header,
+    renderList("line_items", lineItems, [
+      { name: "id", extract: (i) => i.id ?? "—" },
+      { name: "kind", extract: (i) => i.kind ?? "—" },
+      { name: "description", extract: (i) => i.description ?? "—" },
+      { name: "project", extract: (i) => nestedName(i, "project") },
+      { name: "quantity", extract: (i) => i.quantity ?? "—" },
+      { name: "unit_price", extract: (i) => i.unit_price ?? "—" },
+      { name: "amount", extract: (i) => money2(num(i.amount)) },
+    ]),
+  );
 }
 
 async function invoiceCreate(args: string[]): Promise<string> {
@@ -573,7 +660,7 @@ async function invoiceCreate(args: string[]): Promise<string> {
         "From tracked time: --from-tracked --project <name>",
       ]);
     }
-    body.line_items = f.lines.map(parseLineItem);
+    body.line_items = await resolveLineProjects(f.lines.map(parseLineItem));
   }
 
   const created = await harvestRequest<Record<string, unknown>>("invoices", { method: "POST", body });
@@ -592,16 +679,16 @@ async function invoiceEdit(id: string, args: string[]): Promise<string> {
   await requireDraft(id, "edit");
 
   const body = buildTopLevel(f);
-  const lineItems: Record<string, unknown>[] = [
-    ...f.lines.map(parseLineItem),
-    ...f.updateLines.map(parseUpdateLine),
-    ...f.removeLines.map((rid) => {
-      if (!/^\d+$/.test(rid)) {
-        throw new AxiError(`--remove-line needs a numeric line id, got "${rid}"`, "VALIDATION_ERROR", []);
-      }
-      return { id: Number(rid), _destroy: true };
-    }),
-  ];
+  // Parse everything synchronously first (syntax fail-fast), then resolve the
+  // add/update project tokens before the PATCH. Destroy ops carry no project.
+  const parsed = [...f.lines.map(parseLineItem), ...f.updateLines.map(parseUpdateLine)];
+  const removes = f.removeLines.map((rid) => {
+    if (!/^\d+$/.test(rid)) {
+      throw new AxiError(`--remove-line needs a numeric line id, got "${rid}"`, "VALIDATION_ERROR", []);
+    }
+    return { id: Number(rid), _destroy: true };
+  });
+  const lineItems: Record<string, unknown>[] = [...(await resolveLineProjects(parsed)), ...removes];
   if (lineItems.length > 0) body.line_items = lineItems;
 
   if (Object.keys(body).length === 0) {
