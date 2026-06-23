@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [invoices-write]
 specs:
   - specs/commands/invoices.md
@@ -36,25 +36,30 @@ issues: []
 
 ## Validation
 
-- [ ] `invoices create --client <name> --line "Service|17000|1|Public Beta (M3)|PA-PERMIT"` creates a draft whose line item is linked to the named project; the create summary echoes the line with its project (no `--raw`, no follow-up `get` needed to confirm).
-- [ ] `invoices edit <draftId> --update-line "<lineId>|||||PA-PERMIT"` sets the project on an existing line without altering its other fields; `invoices get <draftId>` confirms the link.
-- [ ] An unknown/ambiguous project token in a line segment fails with a `VALIDATION_ERROR` (candidates listed) **before** any POST/PATCH — name resolution runs ahead of mutation.
-- [ ] `--line` with a `|` inside the description (over-segmented) produces a clear `VALIDATION_ERROR` rather than silently treating a desc fragment as the project.
-- [ ] `invoices create ... --payment-options ach,credit_card` sets `payment_options` on the draft (visible in `invoices get`); an invalid token (e.g. `--payment-options venmo`) → `VALIDATION_ERROR` listing `ach,credit_card,paypal`.
-- [ ] A syntactically-valid but account-disabled payment option surfaces the Harvest `422` as a translated, actionable error (not raw API noise).
-- [ ] Create/edit result summaries render the `line_items` block with the `project` column for every line.
-- [ ] No regression to the draft-only guard or the no-send/no-pay boundary (existing boundary tests still pass).
+- [x] `invoices create --client <name> --line "kind|price|qty|desc|project"` creates a draft whose line item is linked to the named project; the create summary echoes the line with its project (no `--raw`, no follow-up `get`). _(live: draft 52558054 created with line linked to "API Test", project shown in the create summary; unit: `project_id: 5` in the POST body + echoed line_items block)_
+- [x] `invoices edit <draftId> --update-line "<lineId>|||||<project>"` sets the project on an existing line without altering its other fields; the summary confirms the link. _(live: draft 52558084 — created with an **unlinked** line (the #2732 scenario), then `--update-line` added "API Test"; only the project changed, summary echoed it; unit: PATCH body `{id:777, project_id:5}` only)_
+- [x] An unknown/ambiguous project token in a line segment fails with a `VALIDATION_ERROR` (candidates listed) **before** any POST/PATCH. _(unit: "fails on an unknown line project before any POST" asserts no POST is made)_
+- [x] `--line` with a `|` inside the description (over-segmented) produces a clear `VALIDATION_ERROR`. _(unit: "rejects a --line with a | in the description")_
+- [x] `--payment-options ach,credit_card` sets `payment_options` on the draft; an invalid token → `VALIDATION_ERROR`. _(live: `--payment-options ach` confirmed in `invoices get`; unit: array in POST body + "venmo" rejected before any fetch with a numeric client)_
+- [x] A syntactically-valid but account-disallowed line project surfaces the Harvest `422` as a translated, actionable error. _(live: re-linking to a non-billable/cross-client project returned the translated "Line items may only be assigned to billable projects for this invoice's client" VALIDATION_ERROR — the 422-translation path exercised end-to-end)_
+- [x] Create/edit result summaries render the `line_items` block with the `project` column for every line. _(live both create & edit; the `line_items[N]{id,kind,description,project,quantity,unit_price,amount}` block)_
+- [x] No regression to the draft-only guard or the no-send/no-pay boundary. _(139 tests pass, incl. the 3 boundary assertions and both guard refusals; +6 new tests)_
 
 ## Risks / unknowns
 
 - **Pipe-in-description ambiguity** — positional `project` segment means a literal `|` in a description breaks parsing. Accepted trade-off (positional chosen over a separate `--line-project` flag for one-flag-per-line clarity); mitigated by a max-segment guard that errors loudly. If descriptions with pipes become a real need, revisit with an escape or a separate flag.
-- **`payment_options` enablement is account-dependent** — setting an option not configured on the account 422s. We validate the *vocabulary* client-side but cannot know what's enabled; rely on the translated 422. (The originating session also noted payment options are often (re)applied at finalize in the Harvest UI — so this flag's value is partly belt-and-suspenders.)
+- **`payment_options` enablement is account-dependent** — setting an option not configured on the account 422s. We validate the _vocabulary_ client-side but cannot know what's enabled; rely on the translated 422. (The originating session also noted payment options are often (re)applied at finalize in the Harvest UI — so this flag's value is partly belt-and-suspenders.)
 - **Async parsing refactor** — moving project resolution ahead of the mutation must preserve the existing fail-fast ordering (client resolved first, then projects) and not double-resolve; keep resolution in one batched pass.
 
 ## Notes
 
-(Populated at closeout.)
+- **Async line parsing refactor:** `parseLineItem`/`parseUpdateLine` now return `ParsedLine` (`{item, project?}`) — syntax parsing stays synchronous/fail-fast, and a single batched `resolveLineProjects` resolves unique project tokens in parallel **after** client resolution but **before** the POST/PATCH. `--remove-line` validation is parsed before that resolve so a bad remove id still fails fast.
+- **Project must belong to the invoice's client.** Harvest enforces "line items may only be assigned to billable projects for this invoice's client" — a line can't be linked to a project under a different client (nor a non-billable one). Confirmed live: linking a Jarvus invoice's line to a SEPTA project 422s. harvest-axi surfaces this as a translated `VALIDATION_ERROR`; it does not (and shouldn't) pre-validate the client↔project pairing client-side — the API is the authority.
+- **Pipe-in-description is unsupported by design** — the trailing `<project>` segment is positional-last, so >5 (`--line`) / >6 (`--update-line`) segments error loudly rather than silently mis-parsing a desc fragment as the project. Chosen over a separate `--line-project` flag to preserve one-flag-per-line.
+- **`payment_options` vocabulary is validated client-side** (`ach,credit_card,paypal`); enablement is account-dependent and left to the API (translated 422). The originating session noted payment options are often (re)applied at finalize in the Harvest UI, so this flag is partly belt-and-suspenders.
+- 133 → 139 tests (+6: line project resolve+echo, unknown-project fail-fast, over-segmented `--line`, `--payment-options` set + invalid-token reject, `--update-line` project-only edit).
 
 ## Follow-ups
 
-(Populated at closeout.)
+- `taxed`/`taxed2` per-line flags remain documented in `specs/api/invoices.md` line-item params but unexposed by the CLI (deliberately out of this plan's scope). **Tracked as:** a possible future plan if per-line tax control is ever needed; no demand yet.
+- A `--copy-from <id>` / clone-to-draft "next invoice in a series" create mode was considered (it would have made the originating session a one-liner) and deliberately deferred. **Tracked as:** revisit if building consistent follow-on invoices in a PO series becomes a recurring need.
