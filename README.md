@@ -23,6 +23,7 @@ Mint a Personal Access Token at <https://id.getharvest.com/developers>. The acco
 | `harvest-axi browse clients\|projects\|tasks\|mine` | Reference data + what you can log against |
 | `harvest-axi entries today\|get\|log\|edit\|delete\|start\|stop` | Read + edit your time entries |
 | `harvest-axi invoices [get\|create\|edit\|delete]` | Review invoices + a draft workbench (Admin/Manager) |
+| `harvest-axi estimates [get\|create\|edit\|delete]` | Review estimates + a draft workbench (Admin/Manager) |
 | `harvest-axi auth\|doctor` | Credentials + health |
 | `harvest-axi setup hooks` | Install/repair the SessionStart ambient hook |
 
@@ -51,6 +52,18 @@ harvest-axi invoices edit 12345 --payment-options ach,credit_card
 ```
 
 A line's project must belong to the invoice's client and be billable, or Harvest rejects the change.
+
+### Estimates — a draft workbench
+
+`harvest-axi estimates` mirrors `invoices` for quoting — list/review with a by-state rollup (`draft·sent·accepted·declined`), full `get` detail, and a **draft workbench**. It never sends, marks-as-sent, accepts, or declines (do those in Harvest); `edit`/`delete` act on drafts only.
+
+It's a strict subset of `invoices`: estimate line items are **not** project-linked (so `--line` is `kind|unit_price|qty|desc`, no trailing project), and there's no `--from-tracked`, no payment terms/options, and no payments.
+
+```sh
+harvest-axi estimates --drafts
+harvest-axi estimates create --client "Acme" --line "Service|17000|1|Phase 1 scope" --subject "Q3 proposal"
+harvest-axi estimates edit 12345 --notes "revised" --remove-line 67890
+```
 
 Run `harvest-axi <command> --help` for any command's full flag reference.
 
