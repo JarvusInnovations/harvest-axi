@@ -10,6 +10,7 @@ import { browseCommand, BROWSE_HELP } from "./commands/browse.js";
 import { entriesCommand, ENTRIES_HELP } from "./commands/entries.js";
 import { reportsCommand, REPORTS_HELP } from "./commands/reports.js";
 import { invoicesCommand, INVOICES_HELP } from "./commands/invoices.js";
+import { estimatesCommand, ESTIMATES_HELP } from "./commands/estimates.js";
 import { setupCommand, SETUP_HELP } from "./commands/setup.js";
 
 const DESCRIPTION =
@@ -18,8 +19,8 @@ const DESCRIPTION =
 const VERSION = readPackageVersion();
 
 export const TOP_HELP = `usage: harvest-axi [command] [args] [flags]
-commands[9]:
-  (none)=home, auth, doctor, review, entries, browse, reports, invoices, setup
+commands[10]:
+  (none)=home, auth, doctor, review, entries, browse, reports, invoices, estimates, setup
 flags[2]:
   --help, -v/-V/--version
 examples:
@@ -43,6 +44,7 @@ export async function main(): Promise<void> {
       entries: entriesCommand,
       reports: reportsCommand,
       invoices: invoicesCommand,
+      estimates: estimatesCommand,
       setup: setupCommand,
     },
     getCommandHelp: (command) =>
@@ -54,6 +56,7 @@ export async function main(): Promise<void> {
         entries: ENTRIES_HELP,
         reports: REPORTS_HELP,
         invoices: INVOICES_HELP,
+        estimates: ESTIMATES_HELP,
         setup: SETUP_HELP,
       }[command]),
   });

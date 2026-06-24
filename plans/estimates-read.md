@@ -1,10 +1,11 @@
 ---
-status: planned
+status: done
 depends: [auth-identity, browse]
 specs:
   - specs/api/estimates.md
   - specs/commands/estimates.md
 issues: []
+pr: 10
 ---
 
 # Plan: Estimates — read surface (list + detail)
@@ -30,12 +31,12 @@ This command is built by **mirroring [`invoices`](../specs/commands/invoices.md)
 
 ## Validation
 
-- [ ] `estimates` lists against the live account with a totals + by-state header (counts per `draft/sent/accepted/declined`, summed `$ amount`, currency), `complete: true`, newest-first rows.
-- [ ] `estimates --drafts` (and `--state sent|accepted|declined`) filter correctly; `--client <name>` resolves via the browse cache and filters server-side.
-- [ ] Date windows filter on `issue_date` (`--from/--to`, named windows) and `--since` maps to `updated_since`; the resolved range is stamped in the header.
-- [ ] `estimates get <id>` shows all field groups + line items + messages, with the composed public `web`/`pdf` (`/client/estimates/...`) links; `--raw` dumps untranslated JSON. No `payments` or `references` block is emitted, and no `project` column appears on line items.
-- [ ] Empty list → definitive empty state with broaden/scope hints; `--limit` cap announced (`Showing N of M…`), never silent.
-- [ ] A non-manager token (or simulated `403`) yields a translated `FORBIDDEN` referencing the role requirement — no raw API noise.
+- [x] `estimates` lists against the live account with a totals + by-state header (counts per `draft/sent/accepted/declined`, summed `$ amount`, currency), `complete: true`, newest-first rows. _(live: 16 estimates — draft 6/sent 4/accepted 6/declined 0, $209,477.75 USD, complete:true, newest-first; unit-tested rollup + newest-first + no `due` column)_
+- [x] `estimates --drafts` (and `--state sent|accepted|declined`) filter correctly; `--client <name>` resolves via the browse cache and filters server-side. _(live: --drafts → 6 ($56,380)); unit: state=draft carried on query, unknown --state rejected pre-fetch, --client resolves → client_id=1)_
+- [x] Date windows filter on `issue_date` (`--from/--to`, named windows) and `--since` maps to `updated_since`; the resolved range is stamped in the header. _(unit: --since 7d → `updated_since=` on the query; window plumbing is the shared `parseRange` path proven by invoices/reports)_
+- [x] `estimates get <id>` shows all field groups + line items + messages, with the composed public `web`/`pdf` (`/client/estimates/...`) links; `--raw` dumps untranslated JSON. No `payments` or `references` block is emitted, and no `project` column appears on line items. _(live: draft 3721247 full detail, 9 line items, `/client/estimates/{key}` web+pdf links after a profile refresh; unit: all blocks, messages folded in, no due/payments/references, `--raw` single-fetch)_
+- [x] Empty list → definitive empty state with broaden/scope hints; `--limit` cap announced (`Showing N of M…`), never silent. _(unit: --state declined → "0 estimates found"; --limit 1 → "Showing 1 of 3 matched estimates")_
+- [x] A non-manager token (or simulated `403`) yields a translated `FORBIDDEN` referencing the role requirement — no raw API noise. _(unit: 403 → code FORBIDDEN; live account is a manager so the gate doesn't fire)_
 
 ## Risks / unknowns
 
@@ -45,8 +46,11 @@ This command is built by **mirroring [`invoices`](../specs/commands/invoices.md)
 
 ## Notes
 
-(Populated at closeout.)
+- **Self-contained mirror of `invoices.ts`** (decided up front): `estimates.ts` copies the `num`/`money2`/`nestedName`/`parseListFlags`/`estimateList`/`estimateDetail` shapes rather than extracting a shared module — no refactor risk to the shipped invoices command. The subset trims are all confirmed live: no `due`/`due_amount`, no `payments`/`references` block, no `project` column on line items, lifecycle is `sent_at/accepted_at/declined_at`, states are `draft/sent/accepted/declined`.
+- **`client_key` → `/client/estimates/{key}`** path confirmed live (jarvus.harvestapp.com web + `.pdf`) after `auth whoami --refresh` populated `base_uri`; the uncached fallback note path was also exercised live before the refresh. Same composition as invoices, only the path segment differs.
+- **`--since` → `updated_since`** (not `issue_date`), matching the invoices precedent; the `--from/--to`/named-window path is the shared `parseRange` plumbing.
+- 142 → 156 tests (+14 in `estimates.test.ts`: list rollup/filters/mixed-currency/empty/limit/since/403/client-resolve, get all-blocks/no-due-payments-references/link-fallback/raw/id-required).
 
 ## Follow-ups
 
-(Populated at closeout.)
+- `estimates-write` builds the draft workbench (`create`/`edit`/`delete`) on this command's dispatch + `resolveEntity` wiring + the read-before-write `GET` path.
