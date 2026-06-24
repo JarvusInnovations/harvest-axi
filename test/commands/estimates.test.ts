@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -180,5 +180,135 @@ describe("estimates get", () => {
 
   it("requires an id", async () => {
     await expect(estimatesCommand(["get"])).rejects.toThrow(/requires a numeric estimate id/);
+  });
+});
+
+describe("estimates create", () => {
+  it("requires --client before any fetch", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(estimatesCommand(["create"])).rejects.toThrow(/requires --client/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("creates a free-form draft, resolving the client and parsing lines", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients")) // resolve client
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 99, number: "1", state: "draft", amount: 2000, client: { id: 1, name: "Acme" }, line_items: [{}] }), { status: 201 }));
+    const out = await estimatesCommand(["create", "--client", "Acme", "--line", "Service|200|10|Phase 1 scope"]);
+    expect(out).toContain("draft created");
+    const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
+    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    expect(body.client_id).toBe(1);
+    expect(body.line_items).toEqual([{ kind: "Service", unit_price: 200, quantity: 10, description: "Phase 1 scope" }]);
+    expect(String(postCall?.[0])).toContain("/estimates");
+  });
+
+  it("requires --line items", async () => {
+    // Numeric client id short-circuits resolution, so no fetch precedes the throw.
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(estimatesCommand(["create", "--client", "1"])).rejects.toThrow(/needs --line/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a --line with a trailing project segment (over-segmented)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients"));
+    await expect(
+      estimatesCommand(["create", "--client", "Acme", "--line", "Service|200|10|Phase 1|GTFS"]),
+    ).rejects.toThrow(/too many .* segments/);
+  });
+});
+
+describe("estimates edit/delete — draft guard", () => {
+  const draft = { id: 5, state: "draft", number: "1", amount: 0, client: { id: 1, name: "Acme" }, line_items: [] };
+  const accepted = { id: 6, state: "accepted", number: "2", amount: 100, client: { id: 1, name: "Acme" }, line_items: [] };
+
+  it("edits a draft: guards via GET, then PATCHes with line ops", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard GET
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...draft, line_items: [{}] }), { status: 200 })); // PATCH
+    const out = await estimatesCommand(["edit", "5", "--notes", "hi", "--line", "Service|10|1|x", "--remove-line", "777"]);
+    expect(out).toContain("draft updated");
+    const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
+    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    expect(body.notes).toBe("hi");
+    expect(body.line_items).toEqual([
+      { kind: "Service", unit_price: 10, quantity: 1, description: "x" },
+      { id: 777, _destroy: true },
+    ]);
+    // No payment_options re-send — estimates have no such field.
+    expect("payment_options" in body).toBe(false);
+  });
+
+  it("updates an existing line via --update-line, blank segments left unchanged", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard GET
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...draft, line_items: [{ id: 777 }] }), { status: 200 })); // PATCH
+    await estimatesCommand(["edit", "5", "--update-line", "777|Service|220||revised rate"]);
+    const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
+    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    expect(body.line_items).toEqual([{ id: 777, kind: "Service", unit_price: 220, description: "revised rate" }]);
+  });
+
+  it("requires at least one field or line change", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 }));
+    await expect(estimatesCommand(["edit", "5"])).rejects.toThrow(/at least one field or line change/);
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(false);
+  });
+
+  it("refuses to edit a non-draft and never PATCHes", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(accepted), { status: 200 }));
+    await expect(estimatesCommand(["edit", "6", "--notes", "x"])).rejects.toThrow(/not a draft/);
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(false);
+  });
+
+  it("refuses to delete a non-draft and never DELETEs", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(accepted), { status: 200 }));
+    await expect(estimatesCommand(["delete", "6"])).rejects.toThrow(/not a draft/);
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(false);
+  });
+
+  it("deletes a draft after the guard passes", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard
+      .mockResolvedValueOnce(new Response("", { status: 200 })); // DELETE
+    const out = await estimatesCommand(["delete", "5"]);
+    expect(out).toContain("draft deleted");
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(true);
+  });
+
+  it("delete of an absent estimate is an idempotent no-op", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }),
+    );
+    const out = await estimatesCommand(["delete", "404"]);
+    expect(out).toContain("no-op");
+  });
+});
+
+describe("write boundary — out-of-scope endpoints are never mutated", () => {
+  // The draft-workbench boundary: harvest-axi must never send, mark-as-sent,
+  // accept, decline, or re-open. `get` legitimately *reads* /messages (GET via
+  // paginateAll), so we assert the absence of the mutating signals.
+  const src = readFileSync(new URL("../../src/commands/estimates.ts", import.meta.url), "utf-8");
+
+  it("never sets a transition event_type in a request body", () => {
+    expect(src).not.toMatch(/event_type:\s*["'`]/);
+  });
+
+  it("only ever touches /messages through GET paginateAll", () => {
+    const refs = [...src.matchAll(/[\\`"][^\\`"]*\/messages\b/g)];
+    expect(refs.length).toBeGreaterThan(0); // a read does exist
+    for (const m of refs) {
+      const line = src.slice(Math.max(0, m.index! - 40), m.index! + 40);
+      expect(line).toContain("paginateAll");
+    }
+  });
+
+  it("never references a payments sub-resource (estimates aren't paid)", () => {
+    expect(src).not.toMatch(/\/payments\b/);
   });
 });
