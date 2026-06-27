@@ -294,8 +294,8 @@ function renderRaw(
   header: Record<string, unknown>,
   entries: Record<string, unknown>[],
   flags: ReviewFlags,
-  rangeLabel: string,
-  totalEntries: number,
+  _rangeLabel: string,
+  _totalEntries: number,
 ): string {
   const capped = entries.length > flags.limit;
   const shown = capped ? entries.slice(0, flags.limit) : entries;

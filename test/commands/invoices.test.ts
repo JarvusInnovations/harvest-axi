@@ -184,7 +184,7 @@ describe("invoices create", () => {
     const out = await invoicesCommand(["create", "--client", "Acme", "--line", "Service|200|10|May work"]);
     expect(out).toContain("draft created");
     const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
-    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    const body = JSON.parse((postCall![1] as RequestInit).body as string);
     expect(body.client_id).toBe(1);
     expect(body.line_items).toEqual([{ kind: "Service", unit_price: 200, quantity: 10, description: "May work" }]);
   });
@@ -205,7 +205,7 @@ describe("invoices create", () => {
       );
     const out = await invoicesCommand(["create", "--client", "Acme", "--line", "Service|17000|1|Public Beta (M3)|PA Permit"]);
     const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
-    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    const body = JSON.parse((postCall![1] as RequestInit).body as string);
     expect(body.line_items).toEqual([
       { kind: "Service", unit_price: 17000, quantity: 1, description: "Public Beta (M3)", project_id: 5 },
     ]);
@@ -239,7 +239,7 @@ describe("invoices create", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: 99, state: "draft", amount: 1, client: { id: 1, name: "Acme" }, line_items: [{}] }), { status: 201 }));
     await invoicesCommand(["create", "--client", "Acme", "--line", "Service|1|1|x", "--payment-options", "ach,credit_card"]);
     const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
-    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    const body = JSON.parse((postCall![1] as RequestInit).body as string);
     expect(body.payment_options).toEqual(["ach", "credit_card"]);
   });
 
@@ -260,7 +260,7 @@ describe("invoices create", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: 99, state: "draft", amount: 0, client: { id: 1, name: "Acme" }, line_items: [] }), { status: 201 }));
     await invoicesCommand(["create", "--client", "Acme", "--from-tracked", "--project", "Proj", "--summary", "task", "--from", "2026-05-01", "--to", "2026-05-31"]);
     const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
-    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    const body = JSON.parse((postCall![1] as RequestInit).body as string);
     expect(body.line_items_import).toEqual({ project_ids: [5], time: { summary_type: "task", from: "2026-05-01", to: "2026-05-31" } });
     expect(body.line_items).toBeUndefined();
   });
@@ -292,7 +292,7 @@ describe("invoices edit/delete — draft guard", () => {
     const out = await invoicesCommand(["edit", "5", "--notes", "hi", "--line", "Service|10|1|x", "--remove-line", "777"]);
     expect(out).toContain("draft updated");
     const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
-    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    const body = JSON.parse((patch![1] as RequestInit).body as string);
     expect(body.notes).toBe("hi");
     expect(body.line_items).toEqual([
       { kind: "Service", unit_price: 10, quantity: 1, description: "x" },
@@ -308,7 +308,7 @@ describe("invoices edit/delete — draft guard", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ...draft, line_items: [{ id: 777, project: { id: 5, name: "PA Permit Navigator" } }] }), { status: 200 })); // PATCH
     await invoicesCommand(["edit", "5", "--update-line", "777|||||PA Permit"]);
     const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
-    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    const body = JSON.parse((patch![1] as RequestInit).body as string);
     // Only id + project_id — blank kind/price/qty/desc segments are left unchanged.
     expect(body.line_items).toEqual([{ id: 777, project_id: 5 }]);
   });
@@ -321,7 +321,7 @@ describe("invoices edit/delete — draft guard", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 })); // PATCH
     await invoicesCommand(["edit", "5", "--po", "4300865049"]);
     const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
-    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    const body = JSON.parse((patch![1] as RequestInit).body as string);
     expect(body.purchase_order).toBe("4300865049");
     expect(body.payment_options).toEqual(["ach"]); // re-sent so Harvest doesn't clear it
   });
@@ -333,7 +333,7 @@ describe("invoices edit/delete — draft guard", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })); // PATCH
     await invoicesCommand(["edit", "5", "--po", "X"]);
     const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
-    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    const body = JSON.parse((patch![1] as RequestInit).body as string);
     expect("payment_options" in body).toBe(false);
   });
 
@@ -345,7 +345,7 @@ describe("invoices edit/delete — draft guard", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 }));
     await invoicesCommand(["edit", "5", "--payment-options", "credit_card"]);
-    let body = JSON.parse((spy.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PATCH")?.[1] as RequestInit).body as string);
+    let body = JSON.parse((spy.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PATCH")![1] as RequestInit).body as string);
     expect(body.payment_options).toEqual(["credit_card"]);
     vi.restoreAllMocks();
     // explicit clear
@@ -354,7 +354,7 @@ describe("invoices edit/delete — draft guard", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(withOpts), { status: 200 }));
     await invoicesCommand(["edit", "5", "--payment-options", ""]);
-    body = JSON.parse((spy.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PATCH")?.[1] as RequestInit).body as string);
+    body = JSON.parse((spy.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PATCH")![1] as RequestInit).body as string);
     expect(body.payment_options).toEqual([]);
   });
 

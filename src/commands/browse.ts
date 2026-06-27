@@ -1,5 +1,4 @@
 import { AxiError } from "axi-sdk-js";
-import { readConfig } from "../config.js";
 import { harvestRequest } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import { resolveEntity, type EntityKind } from "../harvest/resolve.js";
