@@ -48,14 +48,38 @@ function parseFlags(args: string[]): { flags: EntriesFlags; positionals: string[
     const arg = args[i];
     const next = args[i + 1];
     switch (arg) {
-      case "--project": flags.project = next; i++; break;
-      case "--task": flags.task = next; i++; break;
-      case "--user": flags.user = next; i++; break;
-      case "--hours": flags.hours = next; i++; break;
-      case "--notes": flags.notes = next; i++; break;
-      case "--date": flags.date = next; i++; break;
-      case "--started": flags.started = next; i++; break;
-      case "--ended": flags.ended = next; i++; break;
+      case "--project":
+        flags.project = next;
+        i++;
+        break;
+      case "--task":
+        flags.task = next;
+        i++;
+        break;
+      case "--user":
+        flags.user = next;
+        i++;
+        break;
+      case "--hours":
+        flags.hours = next;
+        i++;
+        break;
+      case "--notes":
+        flags.notes = next;
+        i++;
+        break;
+      case "--date":
+        flags.date = next;
+        i++;
+        break;
+      case "--started":
+        flags.started = next;
+        i++;
+        break;
+      case "--ended":
+        flags.ended = next;
+        i++;
+        break;
       default:
         if (!arg.startsWith("--")) positionals.push(arg);
         break;
@@ -77,19 +101,26 @@ export async function entriesCommand(args: string[]): Promise<string> {
   const { flags, positionals } = parseFlags(rest);
 
   switch (sub) {
-    case "today": return listDay(todayStr(), "today");
+    case "today":
+      return listDay(todayStr(), "today");
     case "yesterday": {
       const d = new Date();
       d.setDate(d.getDate() - 1);
       const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       return listDay(ds, "yesterday");
     }
-    case "get": return getEntry(requireId(positionals[0], "get"));
-    case "log": return logEntry(flags);
-    case "edit": return editEntry(requireId(positionals[0], "edit"), flags);
-    case "delete": return deleteEntry(requireId(positionals[0], "delete"));
-    case "start": return startTimer(positionals[0], flags);
-    case "stop": return stopTimer(requireId(positionals[0], "stop"));
+    case "get":
+      return getEntry(requireId(positionals[0], "get"));
+    case "log":
+      return logEntry(flags);
+    case "edit":
+      return editEntry(requireId(positionals[0], "edit"), flags);
+    case "delete":
+      return deleteEntry(requireId(positionals[0], "delete"));
+    case "start":
+      return startTimer(positionals[0], flags);
+    case "stop":
+      return stopTimer(requireId(positionals[0], "stop"));
     default:
       throw new AxiError(`Unknown entries subcommand: ${sub}`, "VALIDATION_ERROR", [
         "Run `harvest-axi entries --help` to see available subcommands",
@@ -124,13 +155,19 @@ async function listDay(date: string, label: string): Promise<string> {
     return joinBlocks(
       renderObject({ date: `${date} (${label})` }),
       renderObject({ entries: `0 entries logged on ${date}` }),
-      renderHelp(['Run `harvest-axi entries log --project "<name>" --task "<name>" --hours <h>` to log time']),
+      renderHelp([
+        'Run `harvest-axi entries log --project "<name>" --task "<name>" --hours <h>` to log time',
+      ]),
     );
   }
 
   const total = res.items.reduce((sum, e) => sum + (typeof e.hours === "number" ? e.hours : 0), 0);
   return joinBlocks(
-    renderObject({ date: `${date} (${label})`, entries: res.items.length, total_hours: Math.round(total * 100) / 100 }),
+    renderObject({
+      date: `${date} (${label})`,
+      entries: res.items.length,
+      total_hours: Math.round(total * 100) / 100,
+    }),
     renderList("entries", res.items, [
       { name: "id", extract: (i) => i.id },
       { name: "project", extract: (i) => (i.project as { name?: string })?.name ?? "" },
@@ -139,7 +176,9 @@ async function listDay(date: string, label: string): Promise<string> {
       truncated("notes", 50),
       { name: "running", extract: (i) => i.is_running },
     ]),
-    renderHelp(["Run `harvest-axi entries get <id>` for full detail, or `entries log ...` to add time"]),
+    renderHelp([
+      "Run `harvest-axi entries get <id>` for full detail, or `entries log ...` to add time",
+    ]),
   );
 }
 
@@ -173,19 +212,26 @@ function timerMode(): "duration" | "start_end" | undefined {
   return w ? "start_end" : "duration";
 }
 
-async function buildWriteBody(flags: EntriesFlags, forCreate: boolean): Promise<Record<string, unknown>> {
+async function buildWriteBody(
+  flags: EntriesFlags,
+  forCreate: boolean,
+): Promise<Record<string, unknown>> {
   // Mode enforcement (deferred from auth-identity): reject the wrong mode's
   // flags up front, before any name-resolution lookup.
   const mode = timerMode();
   if (mode === "duration" && (flags.started || flags.ended)) {
-    throw new AxiError("This account tracks time in duration mode — use --hours, not --started/--ended", "VALIDATION_ERROR", [
-      'Example: entries log --project "<name>" --task "<name>" --hours 1.5',
-    ]);
+    throw new AxiError(
+      "This account tracks time in duration mode — use --hours, not --started/--ended",
+      "VALIDATION_ERROR",
+      ['Example: entries log --project "<name>" --task "<name>" --hours 1.5'],
+    );
   }
   if (mode === "start_end" && flags.hours !== undefined) {
-    throw new AxiError("This account tracks time in start/end mode — use --started/--ended, not --hours", "VALIDATION_ERROR", [
-      'Example: entries log --project "<name>" --task "<name>" --started 9:00am --ended 10:30am',
-    ]);
+    throw new AxiError(
+      "This account tracks time in start/end mode — use --started/--ended, not --hours",
+      "VALIDATION_ERROR",
+      ['Example: entries log --project "<name>" --task "<name>" --started 9:00am --ended 10:30am'],
+    );
   }
 
   const body: Record<string, unknown> = {};
@@ -197,7 +243,8 @@ async function buildWriteBody(flags: EntriesFlags, forCreate: boolean): Promise<
 
   if (flags.hours !== undefined) {
     const h = Number(flags.hours);
-    if (Number.isNaN(h)) throw new AxiError(`--hours must be a number, got "${flags.hours}"`, "VALIDATION_ERROR", []);
+    if (Number.isNaN(h))
+      throw new AxiError(`--hours must be a number, got "${flags.hours}"`, "VALIDATION_ERROR", []);
     body.hours = h;
   }
   if (flags.started) body.started_time = flags.started;
@@ -214,7 +261,10 @@ async function logEntry(flags: EntriesFlags): Promise<string> {
     ]);
   }
   const body = await buildWriteBody(flags, true);
-  const created = await harvestRequest<Record<string, unknown>>("time_entries", { method: "POST", body });
+  const created = await harvestRequest<Record<string, unknown>>("time_entries", {
+    method: "POST",
+    body,
+  });
   return renderObject({
     status: "logged",
     id: created.id,
@@ -233,7 +283,10 @@ async function editEntry(id: number, flags: EntriesFlags): Promise<string> {
       "e.g. --notes, --hours, --project, --task, --date",
     ]);
   }
-  const updated = await harvestRequest<Record<string, unknown>>(`time_entries/${id}`, { method: "PATCH", body });
+  const updated = await harvestRequest<Record<string, unknown>>(`time_entries/${id}`, {
+    method: "PATCH",
+    body,
+  });
   return renderObject({
     status: "updated",
     id: updated.id,
@@ -263,14 +316,20 @@ async function startTimer(idArg: string | undefined, flags: EntriesFlags): Promi
   }
   const id = requireId(idArg, "start");
   const current = await harvestRequest<Record<string, unknown>>(`time_entries/${id}`);
-  if (current.is_running === true) return renderObject({ status: `entry ${id} already running (no-op)`, id });
-  const started = await harvestRequest<Record<string, unknown>>(`time_entries/${id}/restart`, { method: "PATCH" });
+  if (current.is_running === true)
+    return renderObject({ status: `entry ${id} already running (no-op)`, id });
+  const started = await harvestRequest<Record<string, unknown>>(`time_entries/${id}/restart`, {
+    method: "PATCH",
+  });
   return renderObject({ status: "started", id, running: started.is_running });
 }
 
 async function stopTimer(id: number): Promise<string> {
   const current = await harvestRequest<Record<string, unknown>>(`time_entries/${id}`);
-  if (current.is_running !== true) return renderObject({ status: `entry ${id} already stopped (no-op)`, id });
-  const stopped = await harvestRequest<Record<string, unknown>>(`time_entries/${id}/stop`, { method: "PATCH" });
+  if (current.is_running !== true)
+    return renderObject({ status: `entry ${id} already stopped (no-op)`, id });
+  const stopped = await harvestRequest<Record<string, unknown>>(`time_entries/${id}/stop`, {
+    method: "PATCH",
+  });
   return renderObject({ status: "stopped", id, hours: stopped.hours });
 }

@@ -11,7 +11,11 @@ function jsonResponse(obj: unknown, status = 200): Response {
 }
 
 const ME = { id: 42, first_name: "Chris", last_name: "Alfano", email: "chris@jarv.us" };
-const COMPANY = { name: "Jarvus Innovations", week_start_day: "Monday", wants_timestamp_timers: false };
+const COMPANY = {
+  name: "Jarvus Innovations",
+  week_start_day: "Monday",
+  wants_timestamp_timers: false,
+};
 
 beforeEach(() => {
   // Isolate config to a throwaway dir; ensure real env creds don't leak in.
@@ -67,7 +71,9 @@ describe("auth setup", () => {
 
   it("auto-selects the single harvest account, validates, and writes config", async () => {
     vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(jsonResponse({ accounts: [{ id: 777, name: "Jarvus Innovations", product: "harvest" }] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ accounts: [{ id: 777, name: "Jarvus Innovations", product: "harvest" }] }),
+      )
       .mockResolvedValueOnce(jsonResponse(ME))
       .mockResolvedValueOnce(jsonResponse(COMPANY));
 
@@ -146,7 +152,9 @@ describe("auth whoami / logout", () => {
   it("whoami uses the cache without an API call; --refresh re-fetches", async () => {
     // Seed config via setup (3 fetches: accounts, me, company).
     vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(jsonResponse({ accounts: [{ id: 5, name: "Co", product: "harvest" }] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ accounts: [{ id: 5, name: "Co", product: "harvest" }] }),
+      )
       .mockResolvedValueOnce(jsonResponse(ME))
       .mockResolvedValueOnce(jsonResponse(COMPANY));
     await authCommand(["setup", "--token", "t"]);

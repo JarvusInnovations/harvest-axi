@@ -13,8 +13,7 @@ import { invoicesCommand, INVOICES_HELP } from "./commands/invoices.js";
 import { estimatesCommand, ESTIMATES_HELP } from "./commands/estimates.js";
 import { setupCommand, SETUP_HELP } from "./commands/setup.js";
 
-const DESCRIPTION =
-  "AXI CLI for Harvest time tracking — review, log, and edit time entries.";
+const DESCRIPTION = "AXI CLI for Harvest time tracking — review, log, and edit time entries.";
 
 const VERSION = readPackageVersion();
 
@@ -58,7 +57,7 @@ export async function main(): Promise<void> {
         invoices: INVOICES_HELP,
         estimates: ESTIMATES_HELP,
         setup: SETUP_HELP,
-      }[command]),
+      })[command],
   });
 }
 

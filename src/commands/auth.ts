@@ -96,15 +96,11 @@ async function authSetup(flags: SetupFlags): Promise<string> {
       });
     }
     // Unconfigured + no token: fail fast with the instruction (not a prompt).
-    throw new AxiError(
-      "A Harvest Personal Access Token is required",
-      "VALIDATION_ERROR",
-      [
-        "Create a token at https://id.getharvest.com/developers",
-        "Then run `harvest-axi auth setup --token <pat> [--account <id>]`",
-        "The account id is auto-selected if your token can see exactly one Harvest account",
-      ],
-    );
+    throw new AxiError("A Harvest Personal Access Token is required", "VALIDATION_ERROR", [
+      "Create a token at https://id.getharvest.com/developers",
+      "Then run `harvest-axi auth setup --token <pat> [--account <id>]`",
+      "The account id is auto-selected if your token can see exactly one Harvest account",
+    ]);
   }
 
   // Resolve the account: explicit flag, else discover via the accounts endpoint.
@@ -112,11 +108,9 @@ async function authSetup(flags: SetupFlags): Promise<string> {
   if (!accountId) {
     const accounts = await fetchAccounts(flags.token);
     if (accounts.length === 0) {
-      throw new AxiError(
-        "That token cannot access any Harvest accounts",
-        "VALIDATION_ERROR",
-        ["Confirm the token is a Harvest (not Forecast-only) Personal Access Token"],
-      );
+      throw new AxiError("That token cannot access any Harvest accounts", "VALIDATION_ERROR", [
+        "Confirm the token is a Harvest (not Forecast-only) Personal Access Token",
+      ]);
     }
     if (accounts.length === 1) {
       accountId = String(accounts[0].id);

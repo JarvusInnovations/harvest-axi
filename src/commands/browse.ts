@@ -58,10 +58,20 @@ function parseArgs(args: string[]): { flags: BrowseFlags; positionals: string[] 
   const positionals: string[] = [];
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case "--all": flags.all = true; break;
-      case "--client": flags.client = args[i + 1]; i++; break;
-      case "--since": flags.since = args[i + 1]; i++; break;
-      case "--refresh": flags.refresh = true; break;
+      case "--all":
+        flags.all = true;
+        break;
+      case "--client":
+        flags.client = args[i + 1];
+        i++;
+        break;
+      case "--since":
+        flags.since = args[i + 1];
+        i++;
+        break;
+      case "--refresh":
+        flags.refresh = true;
+        break;
       default:
         if (!args[i].startsWith("--")) positionals.push(args[i]);
         break;
@@ -131,7 +141,13 @@ async function projectsList(flags: BrowseFlags): Promise<string> {
     "projects",
     "projects",
     flags,
-    [field("id"), truncated("name", 50), pluck("client", "name", "client"), field("code"), activeCol],
+    [
+      field("id"),
+      truncated("name", 50),
+      pluck("client", "name", "client"),
+      field("code"),
+      activeCol,
+    ],
     query,
   );
 }
@@ -145,7 +161,9 @@ async function usersList(flags: BrowseFlags): Promise<string> {
       field("id"),
       computed("name", (i) => userName(i)),
       field("email"),
-      computed("roles", (i) => (Array.isArray(i.access_roles) ? (i.access_roles as string[]).join("/") : "")),
+      computed("roles", (i) =>
+        Array.isArray(i.access_roles) ? (i.access_roles as string[]).join("/") : "",
+      ),
       activeCol,
     ],
     sinceQuery(flags.since),
@@ -181,16 +199,23 @@ async function contactsList(flags: BrowseFlags): Promise<string> {
       field("email"),
       computed("phone", (i) => contactPhone(i)),
     ],
-    suggestions: res.items.length > 0 ? ["Run `harvest-axi browse contacts <id>` for one contact's full record"] : [],
+    suggestions:
+      res.items.length > 0
+        ? ["Run `harvest-axi browse contacts <id>` for one contact's full record"]
+        : [],
     emptyMessage: `0 contacts found${scope.length ? ` for ${scope.join(" · ")}` : ""}`,
   });
 }
 
 async function contactDetail(value: string): Promise<string> {
   if (!/^\d+$/.test(value)) {
-    throw new AxiError(`browse contacts takes a numeric contact id, got "${value}"`, "VALIDATION_ERROR", [
-      "Contacts aren't name-resolved — run `harvest-axi browse contacts --client \"<name>\"` to find ids",
-    ]);
+    throw new AxiError(
+      `browse contacts takes a numeric contact id, got "${value}"`,
+      "VALIDATION_ERROR",
+      [
+        'Contacts aren\'t name-resolved — run `harvest-axi browse contacts --client "<name>"` to find ids',
+      ],
+    );
   }
   const c = await harvestRequest<Record<string, unknown>>(`contacts/${value}`);
   return renderObject({
@@ -212,17 +237,28 @@ async function browseList(
   schema: FieldDef[],
   query: Record<string, QueryValue> = {},
 ): Promise<string> {
-  const mergedQuery = key === "projects" || key === "users" ? query : { ...query, ...sinceQuery(flags.since) };
+  const mergedQuery =
+    key === "projects" || key === "users" ? query : { ...query, ...sinceQuery(flags.since) };
   const res = await paginateAll<Record<string, unknown>>(path, key, mergedQuery);
   let items = res.items;
   if (!flags.all) items = items.filter((i) => i.is_active !== false);
 
   const suggestions: string[] = [];
   if (items.length > 0) {
-    if (key === "projects") suggestions.push('Run `harvest-axi browse projects "<name>"` for one project\'s detail + tasks');
-    else if (key === "clients") suggestions.push('Run `harvest-axi review --client "<name>" --by project` to review one client');
-    else if (key === "users") suggestions.push('Run `harvest-axi browse users <id|name>` for one user\'s full record');
-    else suggestions.push("Run `harvest-axi browse mine` to see which projects/tasks you can log against");
+    if (key === "projects")
+      suggestions.push(
+        'Run `harvest-axi browse projects "<name>"` for one project\'s detail + tasks',
+      );
+    else if (key === "clients")
+      suggestions.push(
+        'Run `harvest-axi review --client "<name>" --by project` to review one client',
+      );
+    else if (key === "users")
+      suggestions.push("Run `harvest-axi browse users <id|name>` for one user's full record");
+    else
+      suggestions.push(
+        "Run `harvest-axi browse mine` to see which projects/tasks you can log against",
+      );
     if (!flags.all) suggestions.push("Add `--all` to include archived/inactive");
   }
 
@@ -251,7 +287,9 @@ async function resolveId(kind: EntityKind, value: string, flags: BrowseFlags): P
 async function clientDetail(value: string, flags: BrowseFlags): Promise<string> {
   const id = await resolveId("client", value, flags);
   const c = await harvestRequest<Record<string, unknown>>(`clients/${id}`);
-  const contacts = await paginateAll<Record<string, unknown>>("contacts", "contacts", { client_id: id });
+  const contacts = await paginateAll<Record<string, unknown>>("contacts", "contacts", {
+    client_id: id,
+  });
 
   const blocks = [
     renderObject({
@@ -302,7 +340,9 @@ async function userDetail(value: string, flags: BrowseFlags): Promise<string> {
   const u =
     value.toLowerCase() === "me"
       ? await harvestRequest<Record<string, unknown>>("users/me")
-      : await harvestRequest<Record<string, unknown>>(`users/${await resolveId("user", value, flags)}`);
+      : await harvestRequest<Record<string, unknown>>(
+          `users/${await resolveId("user", value, flags)}`,
+        );
 
   const capSeconds = typeof u.weekly_capacity === "number" ? u.weekly_capacity : 0;
   return renderObject({
@@ -396,14 +436,12 @@ async function browseMine(): Promise<string> {
     summary: { total: rows.length },
     name: "assignments",
     items: rows,
-    schema: [
-      truncated("project", 45),
-      truncated("client", 30),
-      truncated("tasks", 70),
-    ],
+    schema: [truncated("project", 45), truncated("client", 30), truncated("tasks", 70)],
     suggestions:
       rows.length > 0
-        ? ["Run `harvest-axi entries log --project \"<name>\" --task \"<name>\" --hours <h>` to log time (entries plan)"]
+        ? [
+            'Run `harvest-axi entries log --project "<name>" --task "<name>" --hours <h>` to log time (entries plan)',
+          ]
         : [],
     emptyMessage: "0 active project assignments — ask an admin to assign you to a project",
   });

@@ -50,18 +50,14 @@ export async function fetchAccounts(token: string): Promise<HarvestAccount[]> {
   }
 
   if (res.status === 401) {
-    throw new AxiError(
-      "That Personal Access Token was rejected by Harvest",
-      "TOKEN_INVALID",
-      ["Mint a fresh token at https://id.getharvest.com/developers and pass it via --token"],
-    );
+    throw new AxiError("That Personal Access Token was rejected by Harvest", "TOKEN_INVALID", [
+      "Mint a fresh token at https://id.getharvest.com/developers and pass it via --token",
+    ]);
   }
   if (!res.ok) {
-    throw new AxiError(
-      `Harvest ID returned ${res.status} while listing accounts`,
-      "SERVER_ERROR",
-      ["Retry after a moment"],
-    );
+    throw new AxiError(`Harvest ID returned ${res.status} while listing accounts`, "SERVER_ERROR", [
+      "Retry after a moment",
+    ]);
   }
 
   const body = (await res.json()) as { accounts?: HarvestAccount[] };
@@ -77,7 +73,8 @@ export async function whoMe(creds: Credentials): Promise<ProfileCache> {
   const me = await harvestRequest<UsersMeResponse>("users/me", { credentials: creds });
   const company = await harvestRequest<CompanyResponse>("company", { credentials: creds });
 
-  const userName = [me.first_name, me.last_name].filter(Boolean).join(" ") || me.email || `user ${me.id}`;
+  const userName =
+    [me.first_name, me.last_name].filter(Boolean).join(" ") || me.email || `user ${me.id}`;
 
   return {
     user_id: me.id,

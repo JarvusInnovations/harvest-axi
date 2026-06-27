@@ -69,23 +69,63 @@ function parseReviewFlags(args: string[]): ReviewFlags {
     const arg = args[i];
     const next = args[i + 1];
     switch (arg) {
-      case "--from": flags.range.from = next; i++; break;
-      case "--to": flags.range.to = next; i++; break;
-      case "--since": flags.range.since = next; i++; break;
+      case "--from":
+        flags.range.from = next;
+        i++;
+        break;
+      case "--to":
+        flags.range.to = next;
+        i++;
+        break;
+      case "--since":
+        flags.range.since = next;
+        i++;
+        break;
       case "--team":
-      case "--all-users": flags.team = true; break;
-      case "--user": flags.user = next; i++; break;
-      case "--project": flags.project = next; i++; break;
-      case "--client": flags.client = next; i++; break;
-      case "--task": flags.task = next; i++; break;
-      case "--billable": flags.billable = true; break;
-      case "--non-billable": flags.nonBillable = true; break;
-      case "--unbilled": flags.unbilled = true; break;
-      case "--approval": flags.approval = next; i++; break;
-      case "--rounded": flags.rounded = true; break;
-      case "--limit": flags.limit = Math.max(1, parseInt(next, 10) || 200); i++; break;
+      case "--all-users":
+        flags.team = true;
+        break;
+      case "--user":
+        flags.user = next;
+        i++;
+        break;
+      case "--project":
+        flags.project = next;
+        i++;
+        break;
+      case "--client":
+        flags.client = next;
+        i++;
+        break;
+      case "--task":
+        flags.task = next;
+        i++;
+        break;
+      case "--billable":
+        flags.billable = true;
+        break;
+      case "--non-billable":
+        flags.nonBillable = true;
+        break;
+      case "--unbilled":
+        flags.unbilled = true;
+        break;
+      case "--approval":
+        flags.approval = next;
+        i++;
+        break;
+      case "--rounded":
+        flags.rounded = true;
+        break;
+      case "--limit":
+        flags.limit = Math.max(1, parseInt(next, 10) || 200);
+        i++;
+        break;
       case "--fields":
-        flags.fields = next.split(",").map((s) => s.trim()).filter(Boolean);
+        flags.fields = next
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
         i++;
         break;
       case "--by": {
@@ -127,15 +167,20 @@ function defaultAxis(flags: ReviewFlags): Axis {
 }
 
 function groupKey(entry: Record<string, unknown>, axis: Axis): string {
-  const nested = (k: string) =>
-    ((entry[k] as { name?: string } | undefined)?.name ?? "—");
+  const nested = (k: string) => (entry[k] as { name?: string } | undefined)?.name ?? "—";
   switch (axis) {
-    case "user": return nested("user");
-    case "project": return nested("project");
-    case "client": return nested("client");
-    case "task": return nested("task");
-    case "day": return String(entry.spent_date ?? "—");
-    default: return "—";
+    case "user":
+      return nested("user");
+    case "project":
+      return nested("project");
+    case "client":
+      return nested("client");
+    case "task":
+      return nested("task");
+    case "day":
+      return String(entry.spent_date ?? "—");
+    default:
+      return "—";
   }
 }
 
@@ -174,9 +219,18 @@ export async function reviewCommand(args: string[]): Promise<string> {
     query.user_id = await resolveSelfUserId(creds);
     scopeParts.push("you");
   }
-  if (project) { query.project_id = project.id; scopeParts.push(`project ${project.name}`); }
-  if (client) { query.client_id = client.id; scopeParts.push(`client ${client.name}`); }
-  if (task) { query.task_id = task.id; scopeParts.push(`task ${task.name}`); }
+  if (project) {
+    query.project_id = project.id;
+    scopeParts.push(`project ${project.name}`);
+  }
+  if (client) {
+    query.client_id = client.id;
+    scopeParts.push(`client ${client.name}`);
+  }
+  if (task) {
+    query.task_id = task.id;
+    scopeParts.push(`task ${task.name}`);
+  }
 
   // Refinements: billable is client-side (Harvest's is_billed = invoiced, not billable);
   // unbilled/approval map to server filters.
@@ -190,8 +244,7 @@ export async function reviewCommand(args: string[]): Promise<string> {
   if (flags.billable) entries = entries.filter((e) => e.billable === true);
   if (flags.nonBillable) entries = entries.filter((e) => e.billable === false);
 
-  const hoursOf = (e: Record<string, unknown>) =>
-    num(flags.rounded ? e.rounded_hours : e.hours);
+  const hoursOf = (e: Record<string, unknown>) => num(flags.rounded ? e.rounded_hours : e.hours);
 
   // Totals (always present — the answer before any grouping).
   let total = 0;
@@ -222,10 +275,12 @@ export async function reviewCommand(args: string[]): Promise<string> {
   if (flags.team) {
     const distinct = new Set(entries.map((e) => (e.user as { id?: number } | undefined)?.id));
     if (distinct.size <= 1 && entries.length > 0) {
-      header.note = "your token returned only one user's entries — a manager/admin role is required for team-wide data";
+      header.note =
+        "your token returned only one user's entries — a manager/admin role is required for team-wide data";
     }
   }
-  if (running > 0) header.running = `${running} timer${running === 1 ? "" : "s"} running (hours reflect elapsed-so-far)`;
+  if (running > 0)
+    header.running = `${running} timer${running === 1 ? "" : "s"} running (hours reflect elapsed-so-far)`;
 
   const axis: Axis = flags.by ?? defaultAxis(flags);
 
@@ -303,17 +358,41 @@ function renderRaw(
   const schema = [
     { name: "id", extract: (i: Record<string, unknown>) => i.id },
     { name: "spent_date", extract: (i: Record<string, unknown>) => i.spent_date },
-    { name: "user", extract: (i: Record<string, unknown>) => (i.user as { name?: string })?.name ?? "" },
-    { name: "project", extract: (i: Record<string, unknown>) => (i.project as { name?: string })?.name ?? "" },
-    { name: "task", extract: (i: Record<string, unknown>) => (i.task as { name?: string })?.name ?? "" },
-    { name: "hours", extract: (i: Record<string, unknown>) => round2(num(flags.rounded ? i.rounded_hours : i.hours)) },
+    {
+      name: "user",
+      extract: (i: Record<string, unknown>) => (i.user as { name?: string })?.name ?? "",
+    },
+    {
+      name: "project",
+      extract: (i: Record<string, unknown>) => (i.project as { name?: string })?.name ?? "",
+    },
+    {
+      name: "task",
+      extract: (i: Record<string, unknown>) => (i.task as { name?: string })?.name ?? "",
+    },
+    {
+      name: "hours",
+      extract: (i: Record<string, unknown>) =>
+        round2(num(flags.rounded ? i.rounded_hours : i.hours)),
+    },
   ];
   for (const f of flags.fields) {
     switch (f) {
-      case "notes": schema.push({ name: "notes", extract: (i) => i.notes ?? "" }); break;
-      case "billable": schema.push({ name: "billable", extract: (i) => i.billable }); break;
-      case "approval": schema.push({ name: "approval", extract: (i) => i.approval_status ?? "" }); break;
-      case "client": schema.push({ name: "client", extract: (i) => (i.client as { name?: string })?.name ?? "" }); break;
+      case "notes":
+        schema.push({ name: "notes", extract: (i) => i.notes ?? "" });
+        break;
+      case "billable":
+        schema.push({ name: "billable", extract: (i) => i.billable });
+        break;
+      case "approval":
+        schema.push({ name: "approval", extract: (i) => i.approval_status ?? "" });
+        break;
+      case "client":
+        schema.push({
+          name: "client",
+          extract: (i) => (i.client as { name?: string })?.name ?? "",
+        });
+        break;
     }
   }
 

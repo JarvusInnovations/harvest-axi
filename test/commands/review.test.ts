@@ -5,9 +5,39 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reviewCommand } from "../../src/commands/review.js";
 
 const ENTRIES = [
-  { id: 1, spent_date: "2026-06-08", hours: 2, billable: true, is_running: false, user: { id: 1, name: "Chris" }, project: { id: 10, name: "Acme" }, task: { id: 100, name: "Dev" }, client: { id: 1, name: "AcmeCo" } },
-  { id: 2, spent_date: "2026-06-09", hours: 3, billable: false, is_running: false, user: { id: 1, name: "Chris" }, project: { id: 10, name: "Acme" }, task: { id: 101, name: "PM" }, client: { id: 1, name: "AcmeCo" } },
-  { id: 3, spent_date: "2026-06-09", hours: 1.5, billable: true, is_running: false, user: { id: 2, name: "Jane" }, project: { id: 11, name: "Beta" }, task: { id: 100, name: "Dev" }, client: { id: 2, name: "BetaCo" } },
+  {
+    id: 1,
+    spent_date: "2026-06-08",
+    hours: 2,
+    billable: true,
+    is_running: false,
+    user: { id: 1, name: "Chris" },
+    project: { id: 10, name: "Acme" },
+    task: { id: 100, name: "Dev" },
+    client: { id: 1, name: "AcmeCo" },
+  },
+  {
+    id: 2,
+    spent_date: "2026-06-09",
+    hours: 3,
+    billable: false,
+    is_running: false,
+    user: { id: 1, name: "Chris" },
+    project: { id: 10, name: "Acme" },
+    task: { id: 101, name: "PM" },
+    client: { id: 1, name: "AcmeCo" },
+  },
+  {
+    id: 3,
+    spent_date: "2026-06-09",
+    hours: 1.5,
+    billable: true,
+    is_running: false,
+    user: { id: 2, name: "Jane" },
+    project: { id: 11, name: "Beta" },
+    task: { id: 100, name: "Dev" },
+    client: { id: 2, name: "BetaCo" },
+  },
 ];
 
 function pageOf(items: unknown[]): Response {

@@ -59,7 +59,11 @@ describe("browse", () => {
     const spy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(listPage("clients", [{ id: 5, name: "Caltrans" }])) // resolution
-      .mockResolvedValueOnce(listPage("projects", [{ id: 9, name: "Proj", client: { name: "Caltrans" }, code: "C1", is_active: true }]));
+      .mockResolvedValueOnce(
+        listPage("projects", [
+          { id: 9, name: "Proj", client: { name: "Caltrans" }, code: "C1", is_active: true },
+        ]),
+      );
     const out = await browseCommand(["projects", "--client", "Caltrans"]);
     expect(out).toContain("projects[1]{id,name,client,code,active}:");
     const projectsCall = spy.mock.calls.find(([url]) => String(url).includes("/projects"));
@@ -92,7 +96,14 @@ describe("browse", () => {
   it("lists users with name/email/roles", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       listPage("users", [
-        { id: 1, first_name: "Ada", last_name: "Lovelace", email: "ada@x.com", access_roles: ["administrator"], is_active: true },
+        {
+          id: 1,
+          first_name: "Ada",
+          last_name: "Lovelace",
+          email: "ada@x.com",
+          access_roles: ["administrator"],
+          is_active: true,
+        },
       ]),
     );
     const out = await browseCommand(["users"]);
@@ -102,7 +113,9 @@ describe("browse", () => {
   });
 
   it("maps --since to updated_since on a list", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(listPage("clients", [{ id: 1, name: "C", is_active: true }]));
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(listPage("clients", [{ id: 1, name: "C", is_active: true }]));
     await browseCommand(["clients", "--since", "7d"]);
     expect(String(spy.mock.calls[0]?.[0])).toContain("updated_since=");
   });
@@ -112,7 +125,19 @@ describe("browse detail views", () => {
   it("shows a client's full record", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ id: 7, name: "Caltrans", is_active: true, currency: "USD", address: "1 Main", statement_key: "abc", created_at: "x", updated_at: "y" }), { status: 200 }),
+        new Response(
+          JSON.stringify({
+            id: 7,
+            name: "Caltrans",
+            is_active: true,
+            currency: "USD",
+            address: "1 Main",
+            statement_key: "abc",
+            created_at: "x",
+            updated_at: "y",
+          }),
+          { status: 200 },
+        ),
       )
       .mockResolvedValueOnce(listPage("contacts", [])); // detail folds in contacts (second fetch)
     const out = await browseCommand(["clients", "7"]);
@@ -123,7 +148,18 @@ describe("browse detail views", () => {
 
   it("renders user weekly_capacity in hours and resolves `me` via /users/me", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: 9, first_name: "Chris", last_name: "A", email: "c@x.com", weekly_capacity: 126000, access_roles: ["administrator"], is_active: true }), { status: 200 }),
+      new Response(
+        JSON.stringify({
+          id: 9,
+          first_name: "Chris",
+          last_name: "A",
+          email: "c@x.com",
+          weekly_capacity: 126000,
+          access_roles: ["administrator"],
+          is_active: true,
+        }),
+        { status: 200 },
+      ),
     );
     const out = await browseCommand(["users", "me"]);
     expect(String(spy.mock.calls[0]?.[0])).toContain("/users/me");
@@ -133,11 +169,32 @@ describe("browse detail views", () => {
   it("folds task assignments into a project detail (the curl-gap closer)", async () => {
     // Numeric id skips name resolution → exactly two fetches: project + assignments.
     vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 48, name: "API Test", code: null, client: { name: "Acme" }, is_active: true, is_billable: true, is_fixed_fee: false, bill_by: "Project", hourly_rate: 1, budget_by: "project_cost", cost_budget: 100, created_at: "x", updated_at: "y" }), { status: 200 }))
-      .mockResolvedValueOnce(listPage("task_assignments", [
-        { task: { name: "Development" }, billable: true, hourly_rate: null, is_active: true },
-        { task: { name: "Design" }, billable: true, hourly_rate: null, is_active: true },
-      ]));
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 48,
+            name: "API Test",
+            code: null,
+            client: { name: "Acme" },
+            is_active: true,
+            is_billable: true,
+            is_fixed_fee: false,
+            bill_by: "Project",
+            hourly_rate: 1,
+            budget_by: "project_cost",
+            cost_budget: 100,
+            created_at: "x",
+            updated_at: "y",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        listPage("task_assignments", [
+          { task: { name: "Development" }, billable: true, hourly_rate: null, is_active: true },
+          { task: { name: "Design" }, billable: true, hourly_rate: null, is_active: true },
+        ]),
+      );
     const out = await browseCommand(["projects", "48"]);
     expect(out).toContain("project:");
     expect(out).toContain("name: API Test");
@@ -159,9 +216,18 @@ describe("browse contacts", () => {
     const spy = vi.spyOn(globalThis, "fetch");
     spy
       .mockResolvedValueOnce(listPage("clients", [{ id: 5, name: "Caltrans" }])) // resolution
-      .mockResolvedValueOnce(listPage("contacts", [
-        { id: 1, first_name: "Ada", last_name: "Byron", email: "ada@x.com", phone_office: "555-1", client: { name: "Caltrans" } },
-      ]));
+      .mockResolvedValueOnce(
+        listPage("contacts", [
+          {
+            id: 1,
+            first_name: "Ada",
+            last_name: "Byron",
+            email: "ada@x.com",
+            phone_office: "555-1",
+            client: { name: "Caltrans" },
+          },
+        ]),
+      );
     const out = await browseCommand(["contacts", "--client", "Caltrans"]);
     expect(out).toContain("contacts[1]{id,name,client,email,phone}:");
     expect(out).toContain("Ada Byron");
@@ -171,7 +237,19 @@ describe("browse contacts", () => {
 
   it("shows a contact's full record by numeric id", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: 9, first_name: "Ada", last_name: "Byron", title: "AP", email: "ada@x.com", phone_office: "555-1", client: { name: "Caltrans" }, invoice_recipient_status: "recipient" }), { status: 200 }),
+      new Response(
+        JSON.stringify({
+          id: 9,
+          first_name: "Ada",
+          last_name: "Byron",
+          title: "AP",
+          email: "ada@x.com",
+          phone_office: "555-1",
+          client: { name: "Caltrans" },
+          invoice_recipient_status: "recipient",
+        }),
+        { status: 200 },
+      ),
     );
     const out = await browseCommand(["contacts", "9"]);
     expect(out).toContain("name: Ada Byron");
@@ -180,17 +258,41 @@ describe("browse contacts", () => {
 
   it("rejects a non-numeric contact id (contacts aren't name-resolved)", async () => {
     const spy = vi.spyOn(globalThis, "fetch");
-    await expect(browseCommand(["contacts", "Ada"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(browseCommand(["contacts", "Ada"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
     expect(spy).not.toHaveBeenCalled();
   });
 
   it("folds a client's contacts into client detail", async () => {
     // numeric id → no resolution: client GET + contacts list.
     vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 5, name: "Caltrans", is_active: true, currency: "USD", statement_key: "k", created_at: "x", updated_at: "y" }), { status: 200 }))
-      .mockResolvedValueOnce(listPage("contacts", [
-        { id: 1, first_name: "Ada", last_name: "Byron", title: "AP", email: "ada@x.com", phone_office: "555-1" },
-      ]));
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 5,
+            name: "Caltrans",
+            is_active: true,
+            currency: "USD",
+            statement_key: "k",
+            created_at: "x",
+            updated_at: "y",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        listPage("contacts", [
+          {
+            id: 1,
+            first_name: "Ada",
+            last_name: "Byron",
+            title: "AP",
+            email: "ada@x.com",
+            phone_office: "555-1",
+          },
+        ]),
+      );
     const out = await browseCommand(["clients", "5"]);
     expect(out).toContain("client:");
     expect(out).toContain("contacts[1]{name,title,email,phone}:");
@@ -199,7 +301,20 @@ describe("browse contacts", () => {
 
   it("notes when a client has no contacts", async () => {
     vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 5, name: "Caltrans", is_active: true, currency: "USD", statement_key: "k", created_at: "x", updated_at: "y" }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 5,
+            name: "Caltrans",
+            is_active: true,
+            currency: "USD",
+            statement_key: "k",
+            created_at: "x",
+            updated_at: "y",
+          }),
+          { status: 200 },
+        ),
+      )
       .mockResolvedValueOnce(listPage("contacts", []));
     const out = await browseCommand(["clients", "5"]);
     expect(out).toContain("no contacts on this client");

@@ -72,13 +72,33 @@ function parseListFlags(args: string[]): ListFlags {
     const arg = args[i];
     const next = args[i + 1];
     switch (arg) {
-      case "--from": flags.range.from = next; i++; break;
-      case "--to": flags.range.to = next; i++; break;
-      case "--since": flags.range.since = next; i++; break;
-      case "--client": flags.client = next; i++; break;
-      case "--project": flags.project = next; i++; break;
-      case "--drafts": flags.state = "draft"; break;
-      case "--limit": flags.limit = Math.max(1, parseInt(next, 10) || 200); i++; break;
+      case "--from":
+        flags.range.from = next;
+        i++;
+        break;
+      case "--to":
+        flags.range.to = next;
+        i++;
+        break;
+      case "--since":
+        flags.range.since = next;
+        i++;
+        break;
+      case "--client":
+        flags.client = next;
+        i++;
+        break;
+      case "--project":
+        flags.project = next;
+        i++;
+        break;
+      case "--drafts":
+        flags.state = "draft";
+        break;
+      case "--limit":
+        flags.limit = Math.max(1, parseInt(next, 10) || 200);
+        i++;
+        break;
       case "--state": {
         if (!STATES.includes(next as State)) {
           throw new AxiError(`Unknown --state "${next}"`, "VALIDATION_ERROR", [
@@ -109,7 +129,7 @@ function money2(n: number): number {
 }
 
 const nestedName = (entry: Record<string, unknown>, key: string): string =>
-  ((entry[key] as { name?: string } | undefined)?.name ?? "—");
+  (entry[key] as { name?: string } | undefined)?.name ?? "—";
 
 export async function invoicesCommand(args: string[]): Promise<string> {
   if (args.includes("--help")) return INVOICES_HELP;
@@ -230,13 +250,16 @@ async function invoiceList(args: string[]): Promise<string> {
   const capped = sorted.length > flags.limit;
   const shown = capped ? sorted.slice(0, flags.limit) : sorted;
 
-  const suggestions: string[] = ["Run `harvest-axi invoices get <id>` for one invoice's full detail"];
+  const suggestions: string[] = [
+    "Run `harvest-axi invoices get <id>` for one invoice's full detail",
+  ];
   if (capped) {
     suggestions.unshift(
       `Showing ${flags.limit} of ${sorted.length} matched invoices — raise --limit or narrow the filters`,
     );
   }
-  if (!flags.state) suggestions.push("Run `harvest-axi invoices --drafts` to review draft invoices");
+  if (!flags.state)
+    suggestions.push("Run `harvest-axi invoices --drafts` to review draft invoices");
 
   return joinBlocks(
     renderObject(header),
@@ -260,8 +283,14 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
 
   if (raw) return renderObject({ invoice });
 
-  const payments = await paginateAll<Record<string, unknown>>(`invoices/${id}/payments`, "invoice_payments");
-  const messages = await paginateAll<Record<string, unknown>>(`invoices/${id}/messages`, "invoice_messages");
+  const payments = await paginateAll<Record<string, unknown>>(
+    `invoices/${id}/payments`,
+    "invoice_payments",
+  );
+  const messages = await paginateAll<Record<string, unknown>>(
+    `invoices/${id}/messages`,
+    "invoice_messages",
+  );
 
   const lineItems = (invoice.line_items as Record<string, unknown>[]) ?? [];
 
@@ -317,13 +346,22 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
     const url = `${baseUri.replace(/\/$/, "")}/client/invoices/${clientKey}`;
     blocks.push(renderObject({ links: { web: url, pdf: `${url}.pdf` } }));
   } else if (clientKey) {
-    blocks.push(renderObject({ links: { client_key: clientKey, note: "run `harvest-axi auth whoami --refresh` to cache the account URL for full links" } }));
+    blocks.push(
+      renderObject({
+        links: {
+          client_key: clientKey,
+          note: "run `harvest-axi auth whoami --refresh` to cache the account URL for full links",
+        },
+      }),
+    );
   }
 
   // References — only the present ones.
   const refs: Record<string, unknown> = {};
-  if (invoice.estimate) refs.estimate = (invoice.estimate as { id?: number }).id ?? invoice.estimate;
-  if (invoice.retainer) refs.retainer = (invoice.retainer as { id?: number }).id ?? invoice.retainer;
+  if (invoice.estimate)
+    refs.estimate = (invoice.estimate as { id?: number }).id ?? invoice.estimate;
+  if (invoice.retainer)
+    refs.retainer = (invoice.retainer as { id?: number }).id ?? invoice.retainer;
   if (invoice.recurring_invoice_id) refs.recurring_invoice_id = invoice.recurring_invoice_id;
   if (Object.keys(refs).length > 0) blocks.push(renderObject({ references: refs }));
 
@@ -359,7 +397,10 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
           name: "recipients",
           extract: (i) =>
             Array.isArray(i.recipients)
-              ? (i.recipients as Array<{ email?: string }>).map((r) => r.email).filter(Boolean).join(", ") || "—"
+              ? (i.recipients as Array<{ email?: string }>)
+                  .map((r) => r.email)
+                  .filter(Boolean)
+                  .join(", ") || "—"
               : "—",
         },
         { name: "subject", extract: (i) => i.subject ?? "—" },
@@ -399,33 +440,104 @@ interface WriteFlags {
 }
 
 function parseWriteFlags(args: string[]): WriteFlags {
-  const f: WriteFlags = { lines: [], updateLines: [], removeLines: [], projects: [], fromTracked: false, expenses: false };
+  const f: WriteFlags = {
+    lines: [],
+    updateLines: [],
+    removeLines: [],
+    projects: [],
+    fromTracked: false,
+    expenses: false,
+  };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const n = args[i + 1];
     switch (a) {
-      case "--client": f.client = n; i++; break;
-      case "--subject": f.subject = n; i++; break;
-      case "--notes": f.notes = n; i++; break;
-      case "--po": f.po = n; i++; break;
-      case "--issue-date": f.issueDate = n; i++; break;
-      case "--due-date": f.dueDate = n; i++; break;
-      case "--payment-term": f.paymentTerm = n; i++; break;
-      case "--payment-options": f.paymentOptions = n; i++; break;
-      case "--currency": f.currency = n; i++; break;
-      case "--tax": f.tax = n; i++; break;
-      case "--tax2": f.tax2 = n; i++; break;
-      case "--discount": f.discount = n; i++; break;
-      case "--line": f.lines.push(n); i++; break;
-      case "--update-line": f.updateLines.push(n); i++; break;
-      case "--remove-line": f.removeLines.push(n); i++; break;
-      case "--from-tracked": f.fromTracked = true; break;
-      case "--project": f.projects.push(n); i++; break;
-      case "--summary": f.summary = n; i++; break;
-      case "--from": f.from = n; i++; break;
-      case "--to": f.to = n; i++; break;
-      case "--expenses": f.expenses = true; break;
-      case "--expense-summary": f.expenseSummary = n; i++; break;
+      case "--client":
+        f.client = n;
+        i++;
+        break;
+      case "--subject":
+        f.subject = n;
+        i++;
+        break;
+      case "--notes":
+        f.notes = n;
+        i++;
+        break;
+      case "--po":
+        f.po = n;
+        i++;
+        break;
+      case "--issue-date":
+        f.issueDate = n;
+        i++;
+        break;
+      case "--due-date":
+        f.dueDate = n;
+        i++;
+        break;
+      case "--payment-term":
+        f.paymentTerm = n;
+        i++;
+        break;
+      case "--payment-options":
+        f.paymentOptions = n;
+        i++;
+        break;
+      case "--currency":
+        f.currency = n;
+        i++;
+        break;
+      case "--tax":
+        f.tax = n;
+        i++;
+        break;
+      case "--tax2":
+        f.tax2 = n;
+        i++;
+        break;
+      case "--discount":
+        f.discount = n;
+        i++;
+        break;
+      case "--line":
+        f.lines.push(n);
+        i++;
+        break;
+      case "--update-line":
+        f.updateLines.push(n);
+        i++;
+        break;
+      case "--remove-line":
+        f.removeLines.push(n);
+        i++;
+        break;
+      case "--from-tracked":
+        f.fromTracked = true;
+        break;
+      case "--project":
+        f.projects.push(n);
+        i++;
+        break;
+      case "--summary":
+        f.summary = n;
+        i++;
+        break;
+      case "--from":
+        f.from = n;
+        i++;
+        break;
+      case "--to":
+        f.to = n;
+        i++;
+        break;
+      case "--expenses":
+        f.expenses = true;
+        break;
+      case "--expense-summary":
+        f.expenseSummary = n;
+        i++;
+        break;
     }
   }
   return f;
@@ -439,7 +551,10 @@ const PAYMENT_OPTIONS = ["ach", "credit_card", "paypal"] as const;
  * account surfaces a translated Harvest 422 at write time.
  */
 function parsePaymentOptions(value: string): string[] {
-  const opts = value.split(",").map((s) => s.trim()).filter(Boolean);
+  const opts = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   for (const o of opts) {
     if (!(PAYMENT_OPTIONS as readonly string[]).includes(o)) {
       throw new AxiError(`--payment-options got "${o}"`, "VALIDATION_ERROR", [
@@ -479,16 +594,22 @@ interface ParsedLine {
 function parseLineItem(spec: string): ParsedLine {
   const parts = spec.split("|").map((s) => s.trim());
   if (parts.length > 5) {
-    throw new AxiError(`--line has too many "|" segments (max 5: kind|unit_price|qty|desc|project) — got "${spec}"`, "VALIDATION_ERROR", [
-      "A literal | in the description isn't supported — remove it",
-      'Format: --line "Service|200|10|May consulting|GTFS"',
-    ]);
+    throw new AxiError(
+      `--line has too many "|" segments (max 5: kind|unit_price|qty|desc|project) — got "${spec}"`,
+      "VALIDATION_ERROR",
+      [
+        "A literal | in the description isn't supported — remove it",
+        'Format: --line "Service|200|10|May consulting|GTFS"',
+      ],
+    );
   }
   const [kind, unitPrice, qty, desc, project] = parts;
   if (!kind || !unitPrice) {
-    throw new AxiError(`--line needs at least "kind|unit_price" — got "${spec}"`, "VALIDATION_ERROR", [
-      'Example: --line "Service|200|10|May consulting"',
-    ]);
+    throw new AxiError(
+      `--line needs at least "kind|unit_price" — got "${spec}"`,
+      "VALIDATION_ERROR",
+      ['Example: --line "Service|200|10|May consulting"'],
+    );
   }
   const item: Record<string, unknown> = { kind, unit_price: numFlag("unit_price", unitPrice) };
   if (qty) item.quantity = numFlag("quantity", qty);
@@ -500,16 +621,22 @@ function parseLineItem(spec: string): ParsedLine {
 function parseUpdateLine(spec: string): ParsedLine {
   const parts = spec.split("|").map((s) => s.trim());
   if (parts.length > 6) {
-    throw new AxiError(`--update-line has too many "|" segments (max 6: id|kind|unit_price|qty|desc|project) — got "${spec}"`, "VALIDATION_ERROR", [
-      "A literal | in the description isn't supported — remove it",
-      'Format: --update-line "998877|Service|220||revised rate|GTFS"',
-    ]);
+    throw new AxiError(
+      `--update-line has too many "|" segments (max 6: id|kind|unit_price|qty|desc|project) — got "${spec}"`,
+      "VALIDATION_ERROR",
+      [
+        "A literal | in the description isn't supported — remove it",
+        'Format: --update-line "998877|Service|220||revised rate|GTFS"',
+      ],
+    );
   }
   const [id, kind, unitPrice, qty, desc, project] = parts;
   if (!id || !/^\d+$/.test(id)) {
-    throw new AxiError(`--update-line needs a numeric line id first — got "${spec}"`, "VALIDATION_ERROR", [
-      'Example: --update-line "998877|Service|220||revised rate"',
-    ]);
+    throw new AxiError(
+      `--update-line needs a numeric line id first — got "${spec}"`,
+      "VALIDATION_ERROR",
+      ['Example: --update-line "998877|Service|220||revised rate"'],
+    );
   }
   const item: Record<string, unknown> = { id: Number(id) };
   if (kind) item.kind = kind;
@@ -636,11 +763,15 @@ async function invoiceCreate(args: string[]): Promise<string> {
       ]);
     }
     if (f.lines.length > 0) {
-      throw new AxiError("`--from-tracked` and `--line` are mutually exclusive", "VALIDATION_ERROR", [
-        "Use --from-tracked to import time, OR --line for free-form items — not both",
-      ]);
+      throw new AxiError(
+        "`--from-tracked` and `--line` are mutually exclusive",
+        "VALIDATION_ERROR",
+        ["Use --from-tracked to import time, OR --line for free-form items — not both"],
+      );
     }
-    const projectIds = await Promise.all(f.projects.map((p) => resolveEntity("project", p).then((e) => e.id)));
+    const projectIds = await Promise.all(
+      f.projects.map((p) => resolveEntity("project", p).then((e) => e.id)),
+    );
     const importBlock: Record<string, unknown> = { project_ids: projectIds };
     const time: Record<string, unknown> = { summary_type: f.summary ?? "project" };
     if (f.from) time.from = f.from;
@@ -655,15 +786,22 @@ async function invoiceCreate(args: string[]): Promise<string> {
     body.line_items_import = importBlock;
   } else {
     if (f.lines.length === 0) {
-      throw new AxiError("`invoices create` needs --line items or --from-tracked", "VALIDATION_ERROR", [
-        'Free-form: --line "Service|200|10|May work" (repeatable)',
-        "From tracked time: --from-tracked --project <name>",
-      ]);
+      throw new AxiError(
+        "`invoices create` needs --line items or --from-tracked",
+        "VALIDATION_ERROR",
+        [
+          'Free-form: --line "Service|200|10|May work" (repeatable)',
+          "From tracked time: --from-tracked --project <name>",
+        ],
+      );
     }
     body.line_items = await resolveLineProjects(f.lines.map(parseLineItem));
   }
 
-  const created = await harvestRequest<Record<string, unknown>>("invoices", { method: "POST", body });
+  const created = await harvestRequest<Record<string, unknown>>("invoices", {
+    method: "POST",
+    body,
+  });
   return joinBlocks(
     createdSummary("draft created", created),
     renderHelp([
@@ -685,7 +823,11 @@ async function invoiceEdit(id: string, args: string[]): Promise<string> {
   const parsed = [...f.lines.map(parseLineItem), ...f.updateLines.map(parseUpdateLine)];
   const removes = f.removeLines.map((rid) => {
     if (!/^\d+$/.test(rid)) {
-      throw new AxiError(`--remove-line needs a numeric line id, got "${rid}"`, "VALIDATION_ERROR", []);
+      throw new AxiError(
+        `--remove-line needs a numeric line id, got "${rid}"`,
+        "VALIDATION_ERROR",
+        [],
+      );
     }
     return { id: Number(rid), _destroy: true };
   });
@@ -693,9 +835,11 @@ async function invoiceEdit(id: string, args: string[]): Promise<string> {
   if (lineItems.length > 0) body.line_items = lineItems;
 
   if (Object.keys(body).length === 0) {
-    throw new AxiError("`invoices edit` needs at least one field or line change", "VALIDATION_ERROR", [
-      "e.g. --notes, --subject, --due-date, --line, --update-line, --remove-line",
-    ]);
+    throw new AxiError(
+      "`invoices edit` needs at least one field or line change",
+      "VALIDATION_ERROR",
+      ["e.g. --notes, --subject, --due-date, --line, --update-line, --remove-line"],
+    );
   }
 
   // Harvest clears payment_options on any PATCH that omits the field (it is NOT
@@ -711,7 +855,10 @@ async function invoiceEdit(id: string, args: string[]): Promise<string> {
     body.payment_options = current.payment_options;
   }
 
-  const updated = await harvestRequest<Record<string, unknown>>(`invoices/${id}`, { method: "PATCH", body });
+  const updated = await harvestRequest<Record<string, unknown>>(`invoices/${id}`, {
+    method: "PATCH",
+    body,
+  });
   return joinBlocks(
     createdSummary("draft updated", updated),
     renderHelp([`Run \`harvest-axi invoices get ${id}\` to see the full updated draft`]),

@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  field,
-  pluck,
-  truncated,
-  renderList,
-  renderListResponse,
-} from "../../src/output/index.js";
+import { field, pluck, truncated, renderList, renderListResponse } from "../../src/output/index.js";
 
 describe("output helpers", () => {
   it("renders a TOON table with a field schema", () => {
@@ -23,11 +17,7 @@ describe("output helpers", () => {
   });
 
   it("truncates long strings with an ellipsis", () => {
-    const out = renderList(
-      "rows",
-      [{ notes: "x".repeat(50) }],
-      [truncated("notes", 10)],
-    );
+    const out = renderList("rows", [{ notes: "x".repeat(50) }], [truncated("notes", 10)]);
     expect(out).toContain("…");
     expect(out).not.toContain("x".repeat(50));
   });
