@@ -303,7 +303,8 @@ describe("write boundary — out-of-scope endpoints are never mutated", () => {
     const refs = [...src.matchAll(/[\\`"][^\\`"]*\/messages\b/g)];
     expect(refs.length).toBeGreaterThan(0); // a read does exist
     for (const m of refs) {
-      const line = src.slice(Math.max(0, m.index! - 40), m.index! + 40);
+      // Wide enough to span a line-wrapped `paginateAll<...>(` call header.
+      const line = src.slice(Math.max(0, m.index! - 120), m.index! + 40);
       expect(line).toContain("paginateAll");
     }
   });
