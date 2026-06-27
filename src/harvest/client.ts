@@ -18,14 +18,10 @@ export interface RequestOptions {
 export function requireCredentials(): Credentials {
   const creds = resolveCredentials();
   if (!creds) {
-    throw new AxiError(
-      "No Harvest credentials configured",
-      "TOKEN_INVALID",
-      [
-        "Run `harvest-axi auth setup --token <pat> --account <id>` to connect your account",
-        "Create a Personal Access Token at https://id.getharvest.com/developers",
-      ],
-    );
+    throw new AxiError("No Harvest credentials configured", "TOKEN_INVALID", [
+      "Run `harvest-axi auth setup --token <pat> --account <id>` to connect your account",
+      "Create a Personal Access Token at https://id.getharvest.com/developers",
+    ]);
   }
   return creds;
 }
@@ -45,10 +41,7 @@ function buildUrl(path: string, query?: Record<string, QueryValue>): string {
  * suggestion. Raw response bodies never reach stdout — we extract a message
  * and discard the noise (per the error-translation principle).
  */
-async function translateHarvestError(
-  res: Response,
-  operation: string,
-): Promise<AxiError> {
+async function translateHarvestError(res: Response, operation: string): Promise<AxiError> {
   let detail = "";
   try {
     const text = await res.text();
@@ -87,11 +80,9 @@ async function translateHarvestError(
         ["A manager/admin token is required for team-wide or other users' data"],
       );
     case 404:
-      return new AxiError(
-        `Not found on ${operation}${detail ? `: ${detail}` : ""}`,
-        "NOT_FOUND",
-        ["Run `harvest-axi browse projects` / `browse clients` to find valid ids"],
-      );
+      return new AxiError(`Not found on ${operation}${detail ? `: ${detail}` : ""}`, "NOT_FOUND", [
+        "Run `harvest-axi browse projects` / `browse clients` to find valid ids",
+      ]);
     case 422:
       return new AxiError(
         `Harvest rejected the request${detail ? `: ${detail}` : ""}`,
@@ -100,11 +91,9 @@ async function translateHarvestError(
       );
     case 429: {
       const retry = res.headers.get("Retry-After");
-      return new AxiError(
-        `Rate limited on ${operation}`,
-        "RATE_LIMITED",
-        [retry ? `Retry after ${retry} seconds` : "Retry after a short wait"],
-      );
+      return new AxiError(`Rate limited on ${operation}`, "RATE_LIMITED", [
+        retry ? `Retry after ${retry} seconds` : "Retry after a short wait",
+      ]);
     }
     default:
       if (res.status >= 500) {

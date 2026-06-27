@@ -30,6 +30,10 @@
   "scripts": {
     "build": "tsc && chmod +x dist/bin/harvest-axi.js",
     "dev": "bun bin/harvest-axi.ts",
+    "lint": "oxlint src bin test",
+    "format": "oxfmt src bin test",
+    "format:check": "oxfmt --check src bin test",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
@@ -44,6 +48,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
+    "oxfmt": "^0.56.0",
+    "oxlint": "^1.71.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   }

@@ -114,14 +114,10 @@ async function applyRecency(
 
   fields.last_entry = daysAgoLabel(String(entries[0].spent_date ?? ""));
 
-  return renderList(
-    "recent",
-    entries.slice(0, 3),
-    [
-      { name: "spent_date", extract: (i) => i.spent_date },
-      { name: "project", extract: (i) => (i.project as { name?: string })?.name ?? "" },
-      { name: "task", extract: (i) => (i.task as { name?: string })?.name ?? "" },
-      { name: "hours", extract: (i) => i.hours },
-    ],
-  );
+  return renderList("recent", entries.slice(0, 3), [
+    { name: "spent_date", extract: (i) => i.spent_date },
+    { name: "project", extract: (i) => (i.project as { name?: string })?.name ?? "" },
+    { name: "task", extract: (i) => (i.task as { name?: string })?.name ?? "" },
+    { name: "hours", extract: (i) => i.hours },
+  ]);
 }

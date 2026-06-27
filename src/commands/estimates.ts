@@ -62,12 +62,29 @@ function parseListFlags(args: string[]): ListFlags {
     const arg = args[i];
     const next = args[i + 1];
     switch (arg) {
-      case "--from": flags.range.from = next; i++; break;
-      case "--to": flags.range.to = next; i++; break;
-      case "--since": flags.range.since = next; i++; break;
-      case "--client": flags.client = next; i++; break;
-      case "--drafts": flags.state = "draft"; break;
-      case "--limit": flags.limit = Math.max(1, parseInt(next, 10) || 200); i++; break;
+      case "--from":
+        flags.range.from = next;
+        i++;
+        break;
+      case "--to":
+        flags.range.to = next;
+        i++;
+        break;
+      case "--since":
+        flags.range.since = next;
+        i++;
+        break;
+      case "--client":
+        flags.client = next;
+        i++;
+        break;
+      case "--drafts":
+        flags.state = "draft";
+        break;
+      case "--limit":
+        flags.limit = Math.max(1, parseInt(next, 10) || 200);
+        i++;
+        break;
       case "--state": {
         if (!STATES.includes(next as State)) {
           throw new AxiError(`Unknown --state "${next}"`, "VALIDATION_ERROR", [
@@ -98,7 +115,7 @@ function money2(n: number): number {
 }
 
 const nestedName = (entry: Record<string, unknown>, key: string): string =>
-  ((entry[key] as { name?: string } | undefined)?.name ?? "—");
+  (entry[key] as { name?: string } | undefined)?.name ?? "—";
 
 export async function estimatesCommand(args: string[]): Promise<string> {
   if (args.includes("--help")) return ESTIMATES_HELP;
@@ -210,13 +227,16 @@ async function estimateList(args: string[]): Promise<string> {
   const capped = sorted.length > flags.limit;
   const shown = capped ? sorted.slice(0, flags.limit) : sorted;
 
-  const suggestions: string[] = ["Run `harvest-axi estimates get <id>` for one estimate's full detail"];
+  const suggestions: string[] = [
+    "Run `harvest-axi estimates get <id>` for one estimate's full detail",
+  ];
   if (capped) {
     suggestions.unshift(
       `Showing ${flags.limit} of ${sorted.length} matched estimates — raise --limit or narrow the filters`,
     );
   }
-  if (!flags.state) suggestions.push("Run `harvest-axi estimates --drafts` to review draft estimates");
+  if (!flags.state)
+    suggestions.push("Run `harvest-axi estimates --drafts` to review draft estimates");
 
   return joinBlocks(
     renderObject(header),
@@ -238,7 +258,10 @@ async function estimateDetail(id: string, rest: string[]): Promise<string> {
 
   if (raw) return renderObject({ estimate });
 
-  const messages = await paginateAll<Record<string, unknown>>(`estimates/${id}/messages`, "estimate_messages");
+  const messages = await paginateAll<Record<string, unknown>>(
+    `estimates/${id}/messages`,
+    "estimate_messages",
+  );
 
   const lineItems = (estimate.line_items as Record<string, unknown>[]) ?? [];
 
@@ -285,7 +308,14 @@ async function estimateDetail(id: string, rest: string[]): Promise<string> {
     const url = `${baseUri.replace(/\/$/, "")}/client/estimates/${clientKey}`;
     blocks.push(renderObject({ links: { web: url, pdf: `${url}.pdf` } }));
   } else if (clientKey) {
-    blocks.push(renderObject({ links: { client_key: clientKey, note: "run `harvest-axi auth whoami --refresh` to cache the account URL for full links" } }));
+    blocks.push(
+      renderObject({
+        links: {
+          client_key: clientKey,
+          note: "run `harvest-axi auth whoami --refresh` to cache the account URL for full links",
+        },
+      }),
+    );
   }
 
   blocks.push(
@@ -308,7 +338,10 @@ async function estimateDetail(id: string, rest: string[]): Promise<string> {
           name: "recipients",
           extract: (i) =>
             Array.isArray(i.recipients)
-              ? (i.recipients as Array<{ email?: string }>).map((r) => r.email).filter(Boolean).join(", ") || "—"
+              ? (i.recipients as Array<{ email?: string }>)
+                  .map((r) => r.email)
+                  .filter(Boolean)
+                  .join(", ") || "—"
               : "—",
         },
         { name: "subject", extract: (i) => i.subject ?? "—" },
@@ -343,18 +376,54 @@ function parseWriteFlags(args: string[]): WriteFlags {
     const a = args[i];
     const n = args[i + 1];
     switch (a) {
-      case "--client": f.client = n; i++; break;
-      case "--subject": f.subject = n; i++; break;
-      case "--notes": f.notes = n; i++; break;
-      case "--po": f.po = n; i++; break;
-      case "--issue-date": f.issueDate = n; i++; break;
-      case "--currency": f.currency = n; i++; break;
-      case "--tax": f.tax = n; i++; break;
-      case "--tax2": f.tax2 = n; i++; break;
-      case "--discount": f.discount = n; i++; break;
-      case "--line": f.lines.push(n); i++; break;
-      case "--update-line": f.updateLines.push(n); i++; break;
-      case "--remove-line": f.removeLines.push(n); i++; break;
+      case "--client":
+        f.client = n;
+        i++;
+        break;
+      case "--subject":
+        f.subject = n;
+        i++;
+        break;
+      case "--notes":
+        f.notes = n;
+        i++;
+        break;
+      case "--po":
+        f.po = n;
+        i++;
+        break;
+      case "--issue-date":
+        f.issueDate = n;
+        i++;
+        break;
+      case "--currency":
+        f.currency = n;
+        i++;
+        break;
+      case "--tax":
+        f.tax = n;
+        i++;
+        break;
+      case "--tax2":
+        f.tax2 = n;
+        i++;
+        break;
+      case "--discount":
+        f.discount = n;
+        i++;
+        break;
+      case "--line":
+        f.lines.push(n);
+        i++;
+        break;
+      case "--update-line":
+        f.updateLines.push(n);
+        i++;
+        break;
+      case "--remove-line":
+        f.removeLines.push(n);
+        i++;
+        break;
     }
   }
   return f;
@@ -378,16 +447,22 @@ function numFlag(name: string, value: string): number {
 function parseLineItem(spec: string): Record<string, unknown> {
   const parts = spec.split("|").map((s) => s.trim());
   if (parts.length > 4) {
-    throw new AxiError(`--line has too many "|" segments (max 4: kind|unit_price|qty|desc) — got "${spec}"`, "VALIDATION_ERROR", [
-      "Estimate line items aren't project-linked — there's no trailing project segment",
-      'Format: --line "Service|200|10|Phase 1 scope"',
-    ]);
+    throw new AxiError(
+      `--line has too many "|" segments (max 4: kind|unit_price|qty|desc) — got "${spec}"`,
+      "VALIDATION_ERROR",
+      [
+        "Estimate line items aren't project-linked — there's no trailing project segment",
+        'Format: --line "Service|200|10|Phase 1 scope"',
+      ],
+    );
   }
   const [kind, unitPrice, qty, desc] = parts;
   if (!kind || !unitPrice) {
-    throw new AxiError(`--line needs at least "kind|unit_price" — got "${spec}"`, "VALIDATION_ERROR", [
-      'Example: --line "Service|200|10|Phase 1 scope"',
-    ]);
+    throw new AxiError(
+      `--line needs at least "kind|unit_price" — got "${spec}"`,
+      "VALIDATION_ERROR",
+      ['Example: --line "Service|200|10|Phase 1 scope"'],
+    );
   }
   const item: Record<string, unknown> = { kind, unit_price: numFlag("unit_price", unitPrice) };
   if (qty) item.quantity = numFlag("quantity", qty);
@@ -399,16 +474,22 @@ function parseLineItem(spec: string): Record<string, unknown> {
 function parseUpdateLine(spec: string): Record<string, unknown> {
   const parts = spec.split("|").map((s) => s.trim());
   if (parts.length > 5) {
-    throw new AxiError(`--update-line has too many "|" segments (max 5: id|kind|unit_price|qty|desc) — got "${spec}"`, "VALIDATION_ERROR", [
-      "Estimate line items aren't project-linked — there's no trailing project segment",
-      'Format: --update-line "998877|Service|220||revised rate"',
-    ]);
+    throw new AxiError(
+      `--update-line has too many "|" segments (max 5: id|kind|unit_price|qty|desc) — got "${spec}"`,
+      "VALIDATION_ERROR",
+      [
+        "Estimate line items aren't project-linked — there's no trailing project segment",
+        'Format: --update-line "998877|Service|220||revised rate"',
+      ],
+    );
   }
   const [id, kind, unitPrice, qty, desc] = parts;
   if (!id || !/^\d+$/.test(id)) {
-    throw new AxiError(`--update-line needs a numeric line id first — got "${spec}"`, "VALIDATION_ERROR", [
-      'Example: --update-line "998877|Service|220||revised rate"',
-    ]);
+    throw new AxiError(
+      `--update-line needs a numeric line id first — got "${spec}"`,
+      "VALIDATION_ERROR",
+      ['Example: --update-line "998877|Service|220||revised rate"'],
+    );
   }
   const item: Record<string, unknown> = { id: Number(id) };
   if (kind) item.kind = kind;
@@ -499,7 +580,10 @@ async function estimateCreate(args: string[]): Promise<string> {
   }
   body.line_items = f.lines.map(parseLineItem);
 
-  const created = await harvestRequest<Record<string, unknown>>("estimates", { method: "POST", body });
+  const created = await harvestRequest<Record<string, unknown>>("estimates", {
+    method: "POST",
+    body,
+  });
   return joinBlocks(
     createdSummary("draft created", created),
     renderHelp([
@@ -523,7 +607,11 @@ async function estimateEdit(id: string, args: string[]): Promise<string> {
     ...f.updateLines.map(parseUpdateLine),
     ...f.removeLines.map((rid) => {
       if (!/^\d+$/.test(rid)) {
-        throw new AxiError(`--remove-line needs a numeric line id, got "${rid}"`, "VALIDATION_ERROR", []);
+        throw new AxiError(
+          `--remove-line needs a numeric line id, got "${rid}"`,
+          "VALIDATION_ERROR",
+          [],
+        );
       }
       return { id: Number(rid), _destroy: true };
     }),
@@ -531,12 +619,17 @@ async function estimateEdit(id: string, args: string[]): Promise<string> {
   if (lineItems.length > 0) body.line_items = lineItems;
 
   if (Object.keys(body).length === 0) {
-    throw new AxiError("`estimates edit` needs at least one field or line change", "VALIDATION_ERROR", [
-      "e.g. --notes, --subject, --issue-date, --line, --update-line, --remove-line",
-    ]);
+    throw new AxiError(
+      "`estimates edit` needs at least one field or line change",
+      "VALIDATION_ERROR",
+      ["e.g. --notes, --subject, --issue-date, --line, --update-line, --remove-line"],
+    );
   }
 
-  const updated = await harvestRequest<Record<string, unknown>>(`estimates/${id}`, { method: "PATCH", body });
+  const updated = await harvestRequest<Record<string, unknown>>(`estimates/${id}`, {
+    method: "PATCH",
+    body,
+  });
   return joinBlocks(
     createdSummary("draft updated", updated),
     renderHelp([`Run \`harvest-axi estimates get ${id}\` to see the full updated draft`]),

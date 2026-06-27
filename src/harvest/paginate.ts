@@ -1,7 +1,7 @@
 import { harvestRequest, type QueryValue } from "./client.js";
 
 /** Shape of a Harvest paginated list response. */
-interface HarvestPage<T> {
+interface HarvestPage {
   per_page: number;
   total_pages: number;
   total_entries: number;
@@ -39,7 +39,7 @@ export async function paginateAll<T = Record<string, unknown>>(
   let totalPages = 1;
 
   for (; page <= totalPages && page <= maxPages; page++) {
-    const res = await harvestRequest<HarvestPage<T>>(path, {
+    const res = await harvestRequest<HarvestPage>(path, {
       query: { ...query, page, per_page: 2000 },
     });
     totalEntries = res.total_entries ?? totalEntries;
