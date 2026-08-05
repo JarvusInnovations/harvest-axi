@@ -9,14 +9,20 @@
 import { AxiError } from "axi-sdk-js";
 
 /**
- * Flags accepted on every command, never reported as unknown.
+ * `--help` is the only universally-*accepted* flag.
  *
- * The export flags are *global* so they never read as a typo, but they only
- * *act* on the surfaces in specs/behaviors/machine-output.md. Elsewhere they
- * are rejected by `rejectInertExportFlag` — accepted-but-inert is exactly the
- * silent drop this module exists to eliminate.
+ * The export flags below are *recognized* everywhere — they're real flags, so
+ * they never read as a typo — but they are only *supported* on the surfaces in
+ * specs/behaviors/machine-output.md. Elsewhere they get a targeted redirect via
+ * `rejectInertExportFlag`. Recognized-everywhere and allowed-everywhere are
+ * different things, and conflating them in the help text is #19.
  */
-export const GLOBAL_FLAGS = ["--help", "--json-out", "--csv-out"] as const;
+export const EXPORT_FLAG_NAMES = ["--json-out", "--csv-out"] as const;
+
+const OUT_FLAG_FORMATS: Record<string, "json" | "csv"> = {
+  "--json-out": "json",
+  "--csv-out": "csv",
+};
 
 /** Commands that actually write an export file, for the inert-flag message. */
 const EXPORT_SURFACES = "`entries list`, `entries today|yesterday|get`, `invoices`";
@@ -76,26 +82,60 @@ export function normalizeArgs(args: string[]): string[] {
   return out;
 }
 
+/** The flag's name, with any `=value` stripped. `--json-out=/x` → `--json-out`. */
+export function flagName(token: string): string {
+  const eq = token.indexOf("=");
+  return eq < 0 ? token : token.slice(0, eq);
+}
+
 /**
- * Reject an unrecognized flag. `known` is the command's own flag list; the
- * globals are always allowed. Renamed/removed flags get their targeted hint.
+ * Reject an unrecognized flag.
+ *
+ * Classification happens on the flag **name**, never the raw token: `--json-out`
+ * and `--json-out=/tmp/x.json` are the same flag and must take the same branch.
+ * Testing the raw token routed the attached-value form to the generic path,
+ * which is how #19 reached users.
+ *
+ * This is the single funnel every unknown flag reaches, so export-flag and
+ * renamed/removed classification lives here rather than at each call site —
+ * nine copies of that check is what let the two forms drift apart.
  *
  * Per AXI §6 the error is self-correcting in one turn: it names the flag and
  * lists the valid ones inline, so the agent never needs a follow-up `--help`.
  */
-export function rejectUnknownFlag(flag: string, known: readonly string[], command: string): never {
-  const renamed = RENAMED_FLAG_HINTS[flag];
+export function rejectUnknownFlag(
+  flag: string,
+  known: readonly string[],
+  command: string,
+  opts: { exports?: boolean } = {},
+): never {
+  const name = flagName(flag);
+
+  // Real flags with a real meaning, just not supported here — a redirect, not
+  // an "unknown flag". Export-capable commands strip these before parsing, so
+  // reaching this branch means the command genuinely doesn't export.
+  if (name in OUT_FLAG_FORMATS) rejectInertExportFlag(name, command);
+
+  const renamed = RENAMED_FLAG_HINTS[name];
   if (renamed) {
-    throw new AxiError(renamed, "VALIDATION_ERROR", [`\`${command}\` does not accept ${flag}`]);
+    throw new AxiError(renamed, "VALIDATION_ERROR", [`\`${command}\` does not accept ${name}`]);
   }
-  const removed = REMOVED_FLAG_HINTS[flag];
+  const removed = REMOVED_FLAG_HINTS[name];
   if (removed) {
-    throw new AxiError(removed, "VALIDATION_ERROR", [`\`${command}\` no longer accepts ${flag}`]);
+    throw new AxiError(removed, "VALIDATION_ERROR", [`\`${command}\` no longer accepts ${name}`]);
   }
+
   const suggestions: string[] = [];
   if (known.length) suggestions.push(`Valid flags for \`${command}\`: ${known.join(", ")}`);
-  suggestions.push(`Global flags ${GLOBAL_FLAGS.join(", ")} are always allowed`);
-  throw new AxiError(`Unknown flag ${flag} for \`${command}\``, "VALIDATION_ERROR", suggestions);
+  // Only claim what this command actually accepts. A suggestion naming a flag
+  // the same command rejects is worse than none — the agent believes it and
+  // retries (#19).
+  suggestions.push(
+    opts.exports
+      ? "--help is always allowed; this command also accepts --json-out[=path] and --csv-out[=path]"
+      : "--help is always allowed",
+  );
+  throw new AxiError(`Unknown flag ${name} for \`${command}\``, "VALIDATION_ERROR", suggestions);
 }
 
 /** Reject a stray positional — a dropped argument is as silent as a dropped flag. */

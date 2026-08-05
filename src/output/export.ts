@@ -21,6 +21,19 @@ const OUT_FLAGS: Record<string, ExportFormat> = {
   "--csv-out": "csv",
 };
 
+/**
+ * Does this token obviously name a file?
+ *
+ * Used only to improve the error when someone writes `--json-out <path>` (the
+ * space form, which can't be supported — it would swallow a positional). The
+ * test is deliberately narrow: `entries get --json-out 123` must NOT be
+ * mistaken for a stray path, so a bare id never qualifies.
+ */
+function looksLikePath(token: string | undefined): boolean {
+  if (!token || token.startsWith("-")) return false;
+  return token.includes("/") || /\.(json|csv|tsv)$/i.test(token);
+}
+
 export interface ExportRequest {
   format: ExportFormat;
   /** Explicit path from `--<fmt>-out=<path>`; undefined means auto-generate. */
@@ -44,13 +57,23 @@ export function parseExportRequest(args: string[]): ParsedExportArgs {
   const rest: string[] = [];
   const found: { flag: string; request: ExportRequest }[] = [];
 
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     const eq = arg.indexOf("=");
     const name = eq < 0 ? arg : arg.slice(0, eq);
     const format = OUT_FLAGS[name];
     if (!format) {
       rest.push(arg);
       continue;
+    }
+    // The space form can't be supported (it would swallow a positional), but
+    // failing with a stray-positional error explains nothing — name the form
+    // that works instead.
+    if (eq < 0 && looksLikePath(args[i + 1])) {
+      throw new AxiError(`${name} takes its path attached with \`=\``, "VALIDATION_ERROR", [
+        `Use \`${name}=${args[i + 1]}\` to write there`,
+        `Use \`${name}\` bare to auto-generate a path under the OS temp dir`,
+      ]);
     }
     found.push({
       flag: name,

@@ -1,10 +1,5 @@
 import { AxiError } from "axi-sdk-js";
-import {
-  normalizeArgs,
-  rejectInertExportFlag,
-  rejectUnknownFlag,
-  rejectUnknownPositional,
-} from "../cli/args.js";
+import { normalizeArgs, rejectUnknownFlag, rejectUnknownPositional } from "../cli/args.js";
 import { readConfig } from "../config.js";
 import { harvestRequest } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
@@ -116,7 +111,6 @@ function parseListFlags(rawArgs: string[], positionals: string[] = []): ListFlag
           flags.range.named = arg.slice(2);
           break;
         }
-        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "estimates");
         if (arg.startsWith("--")) rejectUnknownFlag(arg, LIST_FLAGS, "estimates");
         positionals.push(arg);
         break;
@@ -286,7 +280,6 @@ async function estimateDetail(id: string, rest: string[]): Promise<string> {
   // `estimates get` takes no flags of its own — see the `--raw` removed-flag
   // hint in cli/args.ts.
   for (const arg of normalizeArgs(rest)) {
-    if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "estimates get");
     if (arg.startsWith("--")) rejectUnknownFlag(arg, [], "estimates get");
     rejectUnknownPositional(
       arg,
@@ -479,7 +472,6 @@ function parseWriteFlags(rawArgs: string[], command: string): WriteFlags {
         i++;
         break;
       default:
-        if (a === "--json-out" || a === "--csv-out") rejectInertExportFlag(a, command);
         if (a.startsWith("--")) rejectUnknownFlag(a, ESTIMATE_WRITE_FLAGS, command);
         rejectUnknownPositional(
           a,

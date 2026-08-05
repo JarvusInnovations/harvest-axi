@@ -1,10 +1,5 @@
 import { AxiError } from "axi-sdk-js";
-import {
-  normalizeArgs,
-  rejectInertExportFlag,
-  rejectUnknownFlag,
-  rejectUnknownPositional,
-} from "../cli/args.js";
+import { normalizeArgs, rejectUnknownFlag, rejectUnknownPositional } from "../cli/args.js";
 import { readConfig } from "../config.js";
 import { buildExport, parseExportRequest, type ExportRequest } from "../output/export.js";
 import { harvestRequest } from "../harvest/client.js";
@@ -132,7 +127,7 @@ function parseListFlags(rawArgs: string[], positionals: string[] = []): ListFlag
           flags.range.named = arg.slice(2);
           break;
         }
-        if (arg.startsWith("--")) rejectUnknownFlag(arg, LIST_FLAGS, "invoices");
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, LIST_FLAGS, "invoices", { exports: true });
         positionals.push(arg);
         break;
     }
@@ -374,7 +369,6 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
   // claimed to dump untranslated JSON, but rendered TOON — see the removed-flag
   // hint in cli/args.ts.
   for (const arg of normalizeArgs(rest)) {
-    if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "invoices get");
     if (arg.startsWith("--")) rejectUnknownFlag(arg, [], "invoices get");
     rejectUnknownPositional(
       arg,
@@ -666,7 +660,6 @@ function parseWriteFlags(rawArgs: string[], command: string): WriteFlags {
         i++;
         break;
       default:
-        if (a === "--json-out" || a === "--csv-out") rejectInertExportFlag(a, command);
         if (a.startsWith("--")) rejectUnknownFlag(a, INVOICE_WRITE_FLAGS, command);
         rejectUnknownPositional(
           a,

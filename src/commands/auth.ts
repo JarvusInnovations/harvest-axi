@@ -1,10 +1,5 @@
 import { AxiError } from "axi-sdk-js";
-import {
-  normalizeArgs,
-  rejectInertExportFlag,
-  rejectUnknownFlag,
-  rejectUnknownPositional,
-} from "../cli/args.js";
+import { normalizeArgs, rejectUnknownFlag, rejectUnknownPositional } from "../cli/args.js";
 import {
   clearConfig,
   readConfig,
@@ -67,7 +62,6 @@ function parseFlags(rawArgs: string[], sub: string): SetupFlags {
         flags.refresh = true;
         break;
       default:
-        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, `auth ${sub}`);
         if (arg.startsWith("--")) rejectUnknownFlag(arg, known, `auth ${sub}`);
         rejectUnknownPositional(
           arg,

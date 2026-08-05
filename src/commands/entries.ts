@@ -223,7 +223,8 @@ function parseListFlags(rawArgs: string[]): ListFlags {
           flags.range.named = arg.slice(2);
           break;
         }
-        if (arg.startsWith("--")) rejectUnknownFlag(arg, LIST_FLAGS, "entries list");
+        if (arg.startsWith("--"))
+          rejectUnknownFlag(arg, LIST_FLAGS, "entries list", { exports: true });
         rejectUnknownPositional(
           arg,
           "entries list",
@@ -283,7 +284,9 @@ function parseFlags(
           positionals.push(arg);
           break;
         }
-        rejectUnknownFlag(arg, known, `entries ${sub}`);
+        rejectUnknownFlag(arg, known, `entries ${sub}`, {
+          exports: EXPORTING_SUBCOMMANDS.has(sub),
+        });
     }
   }
   return { flags, positionals };
