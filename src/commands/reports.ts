@@ -1,10 +1,5 @@
 import { AxiError } from "axi-sdk-js";
-import {
-  normalizeArgs,
-  rejectInertExportFlag,
-  rejectUnknownFlag,
-  rejectUnknownPositional,
-} from "../cli/args.js";
+import { normalizeArgs, rejectUnknownFlag, rejectUnknownPositional } from "../cli/args.js";
 import type { QueryValue } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import {
@@ -108,7 +103,6 @@ function parseReportsFlags(
           flags.range.named = arg.slice(2);
           break;
         }
-        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, command);
         if (arg.startsWith("--")) rejectUnknownFlag(arg, REPORTS_FLAGS, command);
         positionals.push(arg);
         break;
