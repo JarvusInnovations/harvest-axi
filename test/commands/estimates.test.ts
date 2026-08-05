@@ -242,13 +242,10 @@ describe("estimates get", () => {
     expect(out).toContain("whoami --refresh");
   });
 
-  it("--raw dumps the untranslated estimate without a messages call", async () => {
-    const spy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify(ESTIMATE), { status: 200 }));
-    const out = await estimatesCommand(["get", "1", "--raw"]);
-    expect(out).toContain("client_key: abc123");
-    expect(spy).toHaveBeenCalledTimes(1); // no messages fetch under --raw
+  it("--raw is removed, with a migration hint and no fetch", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(estimatesCommand(["get", "1", "--raw"])).rejects.toThrow(/--json-out\[=path\]/);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("requires an id", async () => {

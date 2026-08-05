@@ -6,6 +6,7 @@ import { requireCredentials } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import { resolveEntity } from "../harvest/resolve.js";
 import { joinBlocks, renderHelp, renderList, renderObject, truncated } from "../output/index.js";
+import { normalizeArgs, rejectUnknownFlag } from "../cli/args.js";
 
 export const ENTRIES_HELP = `usage: harvest-axi entries <subcommand> [args] [flags]
 reads:
@@ -41,9 +42,41 @@ interface EntriesFlags {
   ended?: string;
 }
 
-function parseFlags(args: string[]): { flags: EntriesFlags; positionals: string[] } {
+/**
+ * Per-subcommand flag sets. `entries list` and `entries log` accept different
+ * flags, and only the subcommand layer knows which is in play — validating
+ * against a merged set would let `entries log --billable` through silently.
+ */
+const WRITE_FLAGS = [
+  "--project",
+  "--task",
+  "--user",
+  "--hours",
+  "--notes",
+  "--date",
+  "--started",
+  "--ended",
+] as const;
+
+const ENTRIES_SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
+  today: [],
+  yesterday: [],
+  get: [],
+  log: WRITE_FLAGS,
+  edit: WRITE_FLAGS,
+  delete: [],
+  start: WRITE_FLAGS,
+  stop: [],
+};
+
+function parseFlags(
+  rawArgs: string[],
+  sub: string,
+): { flags: EntriesFlags; positionals: string[] } {
   const flags: EntriesFlags = {};
   const positionals: string[] = [];
+  const known = ENTRIES_SUBCOMMAND_FLAGS[sub] ?? [];
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
@@ -81,8 +114,11 @@ function parseFlags(args: string[]): { flags: EntriesFlags; positionals: string[
         i++;
         break;
       default:
-        if (!arg.startsWith("--")) positionals.push(arg);
-        break;
+        if (!arg.startsWith("--")) {
+          positionals.push(arg);
+          break;
+        }
+        rejectUnknownFlag(arg, known, `entries ${sub}`);
     }
   }
   return { flags, positionals };
@@ -98,7 +134,15 @@ export async function entriesCommand(args: string[]): Promise<string> {
   const sub = args[0];
   const rest = args.slice(1);
   if (rest.includes("--help")) return ENTRIES_HELP;
-  const { flags, positionals } = parseFlags(rest);
+  // Validate the subcommand before its flags, so `entries bogus --x` reports
+  // the unknown subcommand rather than a confusing unknown-flag error.
+  if (!(sub in ENTRIES_SUBCOMMAND_FLAGS)) {
+    throw new AxiError(`Unknown entries subcommand: ${sub}`, "VALIDATION_ERROR", [
+      `Valid subcommands: ${Object.keys(ENTRIES_SUBCOMMAND_FLAGS).join(", ")}`,
+      "Run `harvest-axi entries --help` for usage",
+    ]);
+  }
+  const { flags, positionals } = parseFlags(rest, sub);
 
   switch (sub) {
     case "today":
@@ -121,10 +165,9 @@ export async function entriesCommand(args: string[]): Promise<string> {
       return startTimer(positionals[0], flags);
     case "stop":
       return stopTimer(requireId(positionals[0], "stop"));
+    /* c8 ignore next 2 -- unreachable: sub is validated against the same map above */
     default:
-      throw new AxiError(`Unknown entries subcommand: ${sub}`, "VALIDATION_ERROR", [
-        "Run `harvest-axi entries --help` to see available subcommands",
-      ]);
+      throw new AxiError(`Unknown entries subcommand: ${sub}`, "VALIDATION_ERROR", []);
   }
 }
 

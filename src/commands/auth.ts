@@ -1,5 +1,11 @@
 import { AxiError } from "axi-sdk-js";
 import {
+  normalizeArgs,
+  rejectInertExportFlag,
+  rejectUnknownFlag,
+  rejectUnknownPositional,
+} from "../cli/args.js";
+import {
   clearConfig,
   readConfig,
   resolveCredentials,
@@ -34,8 +40,17 @@ interface SetupFlags {
   refresh: boolean;
 }
 
-function parseFlags(args: string[]): SetupFlags {
+// `setup` takes credentials; `whoami` only refreshes the cached profile.
+const AUTH_SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
+  setup: ["--token", "--account"],
+  whoami: ["--refresh"],
+  logout: [],
+};
+
+function parseFlags(rawArgs: string[], sub: string): SetupFlags {
   const flags: SetupFlags = { refresh: false };
+  const known = AUTH_SUBCOMMAND_FLAGS[sub] ?? [];
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
@@ -51,8 +66,23 @@ function parseFlags(args: string[]): SetupFlags {
       case "--refresh":
         flags.refresh = true;
         break;
+      default:
+        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, `auth ${sub}`);
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, known, `auth ${sub}`);
+        rejectUnknownPositional(
+          arg,
+          `auth ${sub}`,
+          `\`auth ${sub}\` takes flags only — run \`harvest-axi auth --help\` for usage`,
+        );
     }
   }
+  // A flag valid on a sibling subcommand still isn't valid here.
+  if (flags.token !== undefined && !known.includes("--token"))
+    rejectUnknownFlag("--token", known, `auth ${sub}`);
+  if (flags.account !== undefined && !known.includes("--account"))
+    rejectUnknownFlag("--account", known, `auth ${sub}`);
+  if (flags.refresh && !known.includes("--refresh"))
+    rejectUnknownFlag("--refresh", known, `auth ${sub}`);
   return flags;
 }
 
@@ -67,9 +97,9 @@ export async function authCommand(args: string[]): Promise<string> {
 
   switch (sub) {
     case "setup":
-      return authSetup(parseFlags(rest));
+      return authSetup(parseFlags(rest, "setup"));
     case "whoami":
-      return authWhoami(parseFlags(rest));
+      return authWhoami(parseFlags(rest, "whoami"));
     case "logout":
       return authLogout();
     default:

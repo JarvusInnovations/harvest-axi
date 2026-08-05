@@ -245,13 +245,16 @@ describe("invoices get", () => {
     expect(out).toContain("whoami --refresh");
   });
 
-  it("--raw dumps the untranslated invoice without payment/message calls", async () => {
-    const spy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify(INVOICE), { status: 200 }));
-    const out = await invoicesCommand(["get", "1", "--raw"]);
-    expect(out).toContain("client_key: abc123");
-    expect(spy).toHaveBeenCalledTimes(1); // no payments/messages fetch under --raw
+  it("--raw is removed, with a migration hint and no fetch", async () => {
+    // It advertised untranslated JSON but rendered TOON, so nothing could
+    // parse it — replaced by the --json-out side channel.
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(invoicesCommand(["get", "1", "--raw"])).rejects.toThrow(/--json-out\[=path\]/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown flag on the detail view", async () => {
+    await expect(invoicesCommand(["get", "1", "--bogus"])).rejects.toThrow(/Unknown flag --bogus/);
   });
 
   it("requires an id", async () => {

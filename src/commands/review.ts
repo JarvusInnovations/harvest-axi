@@ -7,6 +7,12 @@ import { resolveEntity } from "../harvest/resolve.js";
 import type { QueryValue } from "../harvest/client.js";
 import { joinBlocks, renderHelp, renderList, renderObject } from "../output/index.js";
 import { parseRange, type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
+import {
+  normalizeArgs,
+  rejectInertExportFlag,
+  rejectUnknownFlag,
+  rejectUnknownPositional,
+} from "../cli/args.js";
 
 export const REVIEW_HELP = `usage: harvest-axi review [scope] [window] [--by <axis>] [flags]
 time window (default: last 7d for you, this-week for --team):
@@ -55,7 +61,30 @@ interface ReviewFlags {
   fields: string[];
 }
 
-function parseReviewFlags(args: string[]): ReviewFlags {
+const REVIEW_FLAGS = [
+  "--from",
+  "--to",
+  "--since",
+  "--team",
+  "--all-users",
+  "--user",
+  "--project",
+  "--client",
+  "--task",
+  "--billable",
+  "--non-billable",
+  "--unbilled",
+  "--approval",
+  "--rounded",
+  "--limit",
+  "--fields",
+  "--by",
+  ...NAMED_WINDOWS.map((w) => `--${w}`),
+] as const;
+
+const APPROVAL_STATUSES = ["unsubmitted", "submitted", "approved"] as const;
+
+function parseReviewFlags(rawArgs: string[]): ReviewFlags {
   const flags: ReviewFlags = {
     range: {},
     team: false,
@@ -65,6 +94,7 @@ function parseReviewFlags(args: string[]): ReviewFlags {
     fields: [],
   };
 
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
@@ -110,10 +140,16 @@ function parseReviewFlags(args: string[]): ReviewFlags {
       case "--unbilled":
         flags.unbilled = true;
         break;
-      case "--approval":
+      case "--approval": {
+        if (!APPROVAL_STATUSES.includes(next as (typeof APPROVAL_STATUSES)[number])) {
+          throw new AxiError(`Unknown --approval status "${next}"`, "VALIDATION_ERROR", [
+            `Valid statuses: ${APPROVAL_STATUSES.join(", ")}`,
+          ]);
+        }
         flags.approval = next;
         i++;
         break;
+      }
       case "--rounded":
         flags.rounded = true;
         break;
@@ -142,8 +178,15 @@ function parseReviewFlags(args: string[]): ReviewFlags {
         // Named window flags (--today, --this-week, ...).
         if (arg.startsWith("--") && (NAMED_WINDOWS as readonly string[]).includes(arg.slice(2))) {
           flags.range.named = arg.slice(2);
+          break;
         }
-        break;
+        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "review");
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, REVIEW_FLAGS, "review");
+        rejectUnknownPositional(
+          arg,
+          "review",
+          "`review` takes flags only — run `harvest-axi review --help` for the list",
+        );
     }
   }
   return flags;

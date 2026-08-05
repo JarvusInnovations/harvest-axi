@@ -1,0 +1,151 @@
+/**
+ * Side-channel machine output.
+ *
+ * Implements specs/behaviors/machine-output.md. stdout stays the agent's TOON
+ * view, always; the full payload goes to a *file* only when an explicit
+ * `--<fmt>-out` flag is passed. Writing a file never changes stdout beyond the
+ * appended `wrote:`/`columns:`/`help[]` lines that describe it.
+ *
+ * Ported from the metabase-axi reference implementation (rationale in
+ * kunchenguid/axi#32). There is deliberately no `--json`-to-stdout mode.
+ */
+import { AxiError } from "axi-sdk-js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+
+export type ExportFormat = "json" | "csv";
+
+const OUT_FLAGS: Record<string, ExportFormat> = {
+  "--json-out": "json",
+  "--csv-out": "csv",
+};
+
+export interface ExportRequest {
+  format: ExportFormat;
+  /** Explicit path from `--<fmt>-out=<path>`; undefined means auto-generate. */
+  path?: string;
+}
+
+export interface ParsedExportArgs {
+  /** argv with the export flags removed, for the command's own parser. */
+  rest: string[];
+  request?: ExportRequest;
+}
+
+/**
+ * Strip and parse the export flags from argv.
+ *
+ * Only the attached form (`--json-out=path`) supplies a path — a
+ * space-separated value would swallow a positional (`entries get <id>`), so
+ * the bare flag always means "auto-generate a path".
+ */
+export function parseExportRequest(args: string[]): ParsedExportArgs {
+  const rest: string[] = [];
+  const found: { flag: string; request: ExportRequest }[] = [];
+
+  for (const arg of args) {
+    const eq = arg.indexOf("=");
+    const name = eq < 0 ? arg : arg.slice(0, eq);
+    const format = OUT_FLAGS[name];
+    if (!format) {
+      rest.push(arg);
+      continue;
+    }
+    found.push({
+      flag: name,
+      request: { format, path: eq < 0 ? undefined : arg.slice(eq + 1) },
+    });
+  }
+
+  if (found.length > 1) {
+    throw new AxiError("Use at most one export flag per invocation", "VALIDATION_ERROR", [
+      `Got: ${found.map((f) => f.flag).join(", ")}`,
+      "Run the command twice if you need both formats",
+    ]);
+  }
+  if (found.length === 1 && found[0].request.path === "") {
+    throw new AxiError(`${found[0].flag}= requires a path after the \`=\``, "VALIDATION_ERROR", [
+      `Use \`${found[0].flag}\` bare to auto-generate a path, or \`${found[0].flag}=<path>\``,
+    ]);
+  }
+
+  return { rest, request: found[0]?.request };
+}
+
+function expandPath(path: string): string {
+  const expanded = path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
+  return isAbsolute(expanded) ? expanded : resolve(expanded);
+}
+
+/**
+ * Resolve the destination: the explicit path, or an auto path in the OS temp
+ * dir.
+ *
+ * An auto-generated export is ephemeral scratch, so it belongs somewhere the
+ * OS prunes — never under `~/.config/harvest-axi`, which nothing prunes and
+ * which would grow unbounded. (metabase-axi shipped it under `~/.config`
+ * first and had to correct it.)
+ */
+export function resolveExportPath(req: ExportRequest, kind: string): string {
+  if (req.path) return expandPath(req.path);
+  // `:` and `.` are not filesystem-safe on every platform.
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return join(tmpdir(), "harvest-axi", `${stamp}-${kind}.${req.format}`);
+}
+
+function helpLineFor(format: ExportFormat, path: string, kind: string): string {
+  if (format === "csv") {
+    return `Run \`head ${path}\` (or open it in a spreadsheet) to use the full ${kind} export`;
+  }
+  return kind === "entries"
+    ? `Run \`jq '[.entries[] | select(.billable)] | map(.rounded_hours) | add' ${path}\` to total billable hours`
+    : `Run \`jq '[.invoices[] | .amount] | add' ${path}\` to total the exported invoices`;
+}
+
+export interface ExportOutcome {
+  path: string;
+  wrote: string;
+  columns: string;
+  helpLine: string;
+}
+
+/**
+ * Write the export and describe it for stdout.
+ *
+ * `columns` is echoed inline so a follow-up `jq`/`csvkit` can be composed
+ * without opening the file first — the detail that makes this pattern usable
+ * for agents.
+ */
+export function performExport(
+  req: ExportRequest,
+  kind: string,
+  data: string,
+  meta: { rows: number; columns: string[] },
+): ExportOutcome {
+  const path = resolveExportPath(req, kind);
+  mkdirSync(dirname(path), { recursive: true });
+  // Auto-generated files land in a world-readable temp dir on some platforms
+  // and carry billable_rate / cost_rate / client names → owner-only. An
+  // explicit path is the caller's responsibility (default umask).
+  const auto = !req.path;
+  writeFileSync(path, data, auto ? { mode: 0o600 } : undefined);
+  return {
+    path,
+    wrote: `${path} (${meta.rows} row${meta.rows === 1 ? "" : "s"})`,
+    columns: meta.columns.join(", "),
+    helpLine: helpLineFor(req.format, path, kind),
+  };
+}
+
+/** Serialize rows to CSV. Flat and lossy by nature — reporting, not round-trip. */
+export function toCsv(rows: Record<string, unknown>[], columns: string[]): string {
+  const cell = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [columns.join(",")];
+  for (const row of rows) lines.push(columns.map((c) => cell(row[c])).join(","));
+  return `${lines.join("\n")}\n`;
+}

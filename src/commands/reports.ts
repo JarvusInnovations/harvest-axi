@@ -1,4 +1,10 @@
 import { AxiError } from "axi-sdk-js";
+import {
+  normalizeArgs,
+  rejectInertExportFlag,
+  rejectUnknownFlag,
+  rejectUnknownPositional,
+} from "../cli/args.js";
 import type { QueryValue } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import {
@@ -59,8 +65,22 @@ function hasWindow(f: ReportsFlags): boolean {
   return !!(f.range.from || f.range.to || f.range.since || f.range.named);
 }
 
-function parseReportsFlags(args: string[]): ReportsFlags {
+const REPORTS_FLAGS = [
+  "--from",
+  "--to",
+  "--since",
+  "--fixed-fee",
+  "--all",
+  ...NAMED_WINDOWS.map((w) => `--${w}`),
+] as const;
+
+function parseReportsFlags(
+  rawArgs: string[],
+  command: string,
+  positionals: string[] = [],
+): ReportsFlags {
   const flags: ReportsFlags = { range: {}, fixedFee: false, all: false };
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
@@ -86,7 +106,11 @@ function parseReportsFlags(args: string[]): ReportsFlags {
       default:
         if (arg.startsWith("--") && (NAMED_WINDOWS as readonly string[]).includes(arg.slice(2))) {
           flags.range.named = arg.slice(2);
+          break;
         }
+        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, command);
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, REPORTS_FLAGS, command);
+        positionals.push(arg);
         break;
     }
   }
@@ -126,14 +150,24 @@ export async function reportsCommand(args: string[]): Promise<string> {
   }
   const rest = args.slice(1);
   if (rest.includes("--help")) return REPORTS_HELP;
-  const flags = parseReportsFlags(rest);
+  const positionals: string[] = [];
+  const flags = parseReportsFlags(rest, `reports ${report}`, positionals);
+
+  // Only `expenses` takes a further positional (its axis); a stray one
+  // anywhere else is a dropped argument, so reject it rather than ignore it.
+  if (report !== "expenses" && positionals.length > 0) {
+    rejectUnknownPositional(
+      positionals[0],
+      `reports ${report}`,
+      `\`reports ${report}\` takes flags only — run \`harvest-axi reports --help\` for usage`,
+    );
+  }
 
   if (report === "uninvoiced") return uninvoicedReport(flags);
   if (report === "budget") return budgetReport(flags);
   if (report === "expenses") {
     // expenses takes a second positional axis: reports expenses <axis>.
-    const axis = rest.find((a) => !a.startsWith("--"));
-    return expenseReport(axis, flags);
+    return expenseReport(positionals[0], flags);
   }
 
   const axis = report as Axis;
