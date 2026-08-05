@@ -1,4 +1,10 @@
 import { AxiError } from "axi-sdk-js";
+import {
+  normalizeArgs,
+  rejectInertExportFlag,
+  rejectUnknownFlag,
+  rejectUnknownPositional,
+} from "../cli/args.js";
 import { readConfig } from "../config.js";
 import { harvestRequest } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
@@ -20,8 +26,6 @@ list filters:
   --since <dur>            7d | 2w | 1m  (maps to updated_since)
   --this-month --last-month --this-week --last-week --today --yesterday
   --limit <n>              cap raw rows (default 200)
-get flags:
-  --raw                    dump untranslated estimate JSON
 writes — DRAFT WORKBENCH (create yields a draft; edit/delete act on drafts only):
   create                   new draft (free-form lines)
   edit <id>                change a DRAFT's fields / line items
@@ -56,8 +60,20 @@ interface ListFlags {
   limit: number;
 }
 
-function parseListFlags(args: string[]): ListFlags {
+const LIST_FLAGS = [
+  "--from",
+  "--to",
+  "--since",
+  "--client",
+  "--drafts",
+  "--limit",
+  "--state",
+  ...NAMED_WINDOWS.map((w) => `--${w}`),
+] as const;
+
+function parseListFlags(rawArgs: string[], positionals: string[] = []): ListFlags {
   const flags: ListFlags = { range: {}, limit: 200 };
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
@@ -98,7 +114,11 @@ function parseListFlags(args: string[]): ListFlags {
       default:
         if (arg.startsWith("--") && (NAMED_WINDOWS as readonly string[]).includes(arg.slice(2))) {
           flags.range.named = arg.slice(2);
+          break;
         }
+        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "estimates");
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, LIST_FLAGS, "estimates");
+        positionals.push(arg);
         break;
     }
   }
@@ -144,7 +164,17 @@ function requireEstimateId(value: string | undefined, sub: string): string {
 }
 
 async function estimateList(args: string[]): Promise<string> {
-  const flags = parseListFlags(args);
+  const positionals: string[] = [];
+  const flags = parseListFlags(args, positionals);
+  // A stray positional is almost always a mistyped subcommand, which would
+  // otherwise silently list everything.
+  if (positionals.length > 0) {
+    rejectUnknownPositional(
+      positionals[0],
+      "estimates",
+      "Valid subcommands: get, create, edit, delete — or run `harvest-axi estimates` with flags only to list",
+    );
+  }
   // issue_date window; --since maps to updated_since. No window flag → no date filter.
   const range =
     flags.range.from || flags.range.to || flags.range.named || flags.range.since
@@ -253,10 +283,18 @@ async function estimateList(args: string[]): Promise<string> {
 }
 
 async function estimateDetail(id: string, rest: string[]): Promise<string> {
-  const raw = rest.includes("--raw");
+  // `estimates get` takes no flags of its own — see the `--raw` removed-flag
+  // hint in cli/args.ts.
+  for (const arg of normalizeArgs(rest)) {
+    if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "estimates get");
+    if (arg.startsWith("--")) rejectUnknownFlag(arg, [], "estimates get");
+    rejectUnknownPositional(
+      arg,
+      "estimates get",
+      "`estimates get <id>` takes an id and no further arguments",
+    );
+  }
   const estimate = await harvestRequest<Record<string, unknown>>(`estimates/${id}`);
-
-  if (raw) return renderObject({ estimate });
 
   const messages = await paginateAll<Record<string, unknown>>(
     `estimates/${id}/messages`,
@@ -370,8 +408,24 @@ interface WriteFlags {
   removeLines: string[]; // --remove-line <id>
 }
 
-function parseWriteFlags(args: string[]): WriteFlags {
+const ESTIMATE_WRITE_FLAGS = [
+  "--client",
+  "--subject",
+  "--notes",
+  "--po",
+  "--issue-date",
+  "--currency",
+  "--tax",
+  "--tax2",
+  "--discount",
+  "--line",
+  "--update-line",
+  "--remove-line",
+] as const;
+
+function parseWriteFlags(rawArgs: string[], command: string): WriteFlags {
   const f: WriteFlags = { lines: [], updateLines: [], removeLines: [] };
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const n = args[i + 1];
@@ -424,6 +478,14 @@ function parseWriteFlags(args: string[]): WriteFlags {
         f.removeLines.push(n);
         i++;
         break;
+      default:
+        if (a === "--json-out" || a === "--csv-out") rejectInertExportFlag(a, command);
+        if (a.startsWith("--")) rejectUnknownFlag(a, ESTIMATE_WRITE_FLAGS, command);
+        rejectUnknownPositional(
+          a,
+          command,
+          `\`${command}\` takes flags only — run \`harvest-axi estimates --help\` for usage`,
+        );
     }
   }
   return f;
@@ -547,7 +609,7 @@ function createdSummary(status: string, est: Record<string, unknown>): string {
   });
   if (lineItems.length === 0) return header;
   // Echo the resulting lines so the result is confirmable without a follow-up
-  // `get` (or `--raw`).
+  // `get`.
   return joinBlocks(
     header,
     renderList("line_items", lineItems, [
@@ -562,7 +624,7 @@ function createdSummary(status: string, est: Record<string, unknown>): string {
 }
 
 async function estimateCreate(args: string[]): Promise<string> {
-  const f = parseWriteFlags(args);
+  const f = parseWriteFlags(args, "estimates create");
   if (!f.client) {
     throw new AxiError("`estimates create` requires --client", "VALIDATION_ERROR", [
       "Run `harvest-axi browse clients` to find a client id or name",
@@ -594,7 +656,7 @@ async function estimateCreate(args: string[]): Promise<string> {
 }
 
 async function estimateEdit(id: string, args: string[]): Promise<string> {
-  const f = parseWriteFlags(args);
+  const f = parseWriteFlags(args, "estimates edit");
   // Guard first — no mutation on a non-draft.
   await requireDraft(id, "edit");
 

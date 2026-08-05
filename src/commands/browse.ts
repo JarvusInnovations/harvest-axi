@@ -1,4 +1,5 @@
 import { AxiError } from "axi-sdk-js";
+import { normalizeArgs, rejectInertExportFlag, rejectUnknownFlag } from "../cli/args.js";
 import { harvestRequest } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import { resolveEntity, type EntityKind } from "../harvest/resolve.js";
@@ -53,9 +54,12 @@ interface BrowseFlags {
 }
 
 /** Split positionals (id/name) from flags; only a non-`--` token is a positional. */
-function parseArgs(args: string[]): { flags: BrowseFlags; positionals: string[] } {
+const BROWSE_FLAGS = ["--all", "--client", "--since", "--refresh"] as const;
+
+function parseArgs(rawArgs: string[]): { flags: BrowseFlags; positionals: string[] } {
   const flags: BrowseFlags = { all: false, refresh: false };
   const positionals: string[] = [];
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "--all":
@@ -72,9 +76,15 @@ function parseArgs(args: string[]): { flags: BrowseFlags; positionals: string[] 
       case "--refresh":
         flags.refresh = true;
         break;
-      default:
-        if (!args[i].startsWith("--")) positionals.push(args[i]);
-        break;
+      default: {
+        const arg = args[i];
+        if (!arg.startsWith("--")) {
+          positionals.push(arg);
+          break;
+        }
+        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "browse");
+        rejectUnknownFlag(arg, BROWSE_FLAGS, "browse");
+      }
     }
   }
   return { flags, positionals };

@@ -1,24 +1,26 @@
 import { AxiError } from "axi-sdk-js";
-import { readConfig, type Credentials } from "../config.js";
 import { requireCredentials } from "../harvest/client.js";
-import { whoMe } from "../harvest/identity.js";
-import { paginateAll } from "../harvest/paginate.js";
-import { resolveEntity } from "../harvest/resolve.js";
-import type { QueryValue } from "../harvest/client.js";
+import { assertUserScope, fetchEntries } from "../harvest/entry-query.js";
 import { joinBlocks, renderHelp, renderList, renderObject } from "../output/index.js";
-import { parseRange, type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
+import { type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
+import {
+  normalizeArgs,
+  rejectInertExportFlag,
+  rejectUnknownFlag,
+  rejectUnknownPositional,
+} from "../cli/args.js";
 
 export const REVIEW_HELP = `usage: harvest-axi review [scope] [window] [--by <axis>] [flags]
 time window (default: last 7d for you, this-week for --team):
   --since <dur>        7d | 2w | 1m
   --from <date> --to <date>
   --today --yesterday --this-week --last-week --this-month --last-month
-scope (default: your own entries):
+scope (default: your own entries; --team and --user are mutually exclusive):
   --team               all users your token can see
-  --user <id>          a specific user (names land with the browse plan)
-  --project <id>       one project
-  --client <id>        one client
-  --task <id>          one task
+  --user <id|name>     a specific user
+  --project <id|name>  one project
+  --client <id|name>   one client
+  --task <id|name>     one task
 refine:
   --billable | --non-billable
   --unbilled           uninvoiced entries only
@@ -55,7 +57,30 @@ interface ReviewFlags {
   fields: string[];
 }
 
-function parseReviewFlags(args: string[]): ReviewFlags {
+const REVIEW_FLAGS = [
+  "--from",
+  "--to",
+  "--since",
+  "--team",
+  "--all-users",
+  "--user",
+  "--project",
+  "--client",
+  "--task",
+  "--billable",
+  "--non-billable",
+  "--unbilled",
+  "--approval",
+  "--rounded",
+  "--limit",
+  "--fields",
+  "--by",
+  ...NAMED_WINDOWS.map((w) => `--${w}`),
+] as const;
+
+const APPROVAL_STATUSES = ["unsubmitted", "submitted", "approved"] as const;
+
+function parseReviewFlags(rawArgs: string[]): ReviewFlags {
   const flags: ReviewFlags = {
     range: {},
     team: false,
@@ -65,6 +90,7 @@ function parseReviewFlags(args: string[]): ReviewFlags {
     fields: [],
   };
 
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
@@ -110,10 +136,16 @@ function parseReviewFlags(args: string[]): ReviewFlags {
       case "--unbilled":
         flags.unbilled = true;
         break;
-      case "--approval":
+      case "--approval": {
+        if (!APPROVAL_STATUSES.includes(next as (typeof APPROVAL_STATUSES)[number])) {
+          throw new AxiError(`Unknown --approval status "${next}"`, "VALIDATION_ERROR", [
+            `Valid statuses: ${APPROVAL_STATUSES.join(", ")}`,
+          ]);
+        }
         flags.approval = next;
         i++;
         break;
+      }
       case "--rounded":
         flags.rounded = true;
         break;
@@ -142,8 +174,15 @@ function parseReviewFlags(args: string[]): ReviewFlags {
         // Named window flags (--today, --this-week, ...).
         if (arg.startsWith("--") && (NAMED_WINDOWS as readonly string[]).includes(arg.slice(2))) {
           flags.range.named = arg.slice(2);
+          break;
         }
-        break;
+        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "review");
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, REVIEW_FLAGS, "review");
+        rejectUnknownPositional(
+          arg,
+          "review",
+          "`review` takes flags only — run `harvest-axi review --help` for the list",
+        );
     }
   }
   return flags;
@@ -184,65 +223,15 @@ function groupKey(entry: Record<string, unknown>, axis: Axis): string {
   }
 }
 
-async function resolveSelfUserId(creds: Credentials): Promise<number> {
-  const cached = readConfig().default_user_id;
-  if (cached) return cached;
-  return (await whoMe(creds)).user_id;
-}
-
 export async function reviewCommand(args: string[]): Promise<string> {
   if (args.includes("--help")) return REVIEW_HELP;
   const flags = parseReviewFlags(args);
+  assertUserScope(flags, "review");
   const creds = requireCredentials();
 
-  // Window: default depends on scope.
-  const range = parseRange(
-    flags.range,
-    flags.team ? { defaultNamed: "this-week" } : { defaultSince: "7d" },
-  );
-
-  // Resolve scope names→ids via the browse cache (numeric ids pass through).
-  const query: Record<string, QueryValue> = { from: range.from, to: range.to };
-  const scopeParts: string[] = [];
-
-  const user = flags.user ? await resolveEntity("user", flags.user) : undefined;
-  const project = flags.project ? await resolveEntity("project", flags.project) : undefined;
-  const client = flags.client ? await resolveEntity("client", flags.client) : undefined;
-  const task = flags.task ? await resolveEntity("task", flags.task) : undefined;
-
-  if (flags.team) {
-    scopeParts.push("team");
-  } else if (user) {
-    query.user_id = user.id;
-    scopeParts.push(`user ${user.name}`);
-  } else {
-    query.user_id = await resolveSelfUserId(creds);
-    scopeParts.push("you");
-  }
-  if (project) {
-    query.project_id = project.id;
-    scopeParts.push(`project ${project.name}`);
-  }
-  if (client) {
-    query.client_id = client.id;
-    scopeParts.push(`client ${client.name}`);
-  }
-  if (task) {
-    query.task_id = task.id;
-    scopeParts.push(`task ${task.name}`);
-  }
-
-  // Refinements: billable is client-side (Harvest's is_billed = invoiced, not billable);
-  // unbilled/approval map to server filters.
-  if (flags.unbilled) query.is_billed = false;
-  if (flags.approval) query.approval_status = flags.approval;
-
-  const result = await paginateAll<Record<string, unknown>>("time_entries", "time_entries", query);
-  let entries = result.items;
-
-  // Billable filter is client-side (Harvest's is_billed ≠ billable).
-  if (flags.billable) entries = entries.filter((e) => e.billable === true);
-  if (flags.nonBillable) entries = entries.filter((e) => e.billable === false);
+  // Window + scope + fetch are shared with `entries list` so the two commands
+  // can never disagree about what a given scope means.
+  const { entries, rangeLabel, scope, complete, pagesFetched } = await fetchEntries(flags, creds);
 
   const hoursOf = (e: Record<string, unknown>) => num(flags.rounded ? e.rounded_hours : e.hours);
 
@@ -261,15 +250,15 @@ export async function reviewCommand(args: string[]): Promise<string> {
   // `complete` reflects pagination only — a client-side --billable filter
   // legitimately reduces the row count without meaning the read was partial.
   const header: Record<string, unknown> = {
-    range: range.label,
-    scope: scopeParts.join(" · "),
+    range: rangeLabel,
+    scope,
     total_hours: round2(total),
     billable_hours: round2(billableTotal),
     non_billable_hours: round2(nonBillable),
     entries: entries.length,
-    complete: result.complete,
+    complete,
   };
-  if (!result.complete) header.capped_at_pages = result.pages_fetched;
+  if (!complete) header.capped_at_pages = pagesFetched;
 
   // --team visibility disclosure: token saw only one user despite asking for all.
   if (flags.team) {
@@ -288,7 +277,7 @@ export async function reviewCommand(args: string[]): Promise<string> {
   if (entries.length === 0) {
     return joinBlocks(
       renderObject(header),
-      renderObject({ entries: `0 entries found in ${range.label} for ${scopeParts.join(" · ")}` }),
+      renderObject({ entries: `0 entries found in ${rangeLabel} for ${scope}` }),
       renderHelp([
         "Broaden the window with --since / --from / --to",
         flags.billable || flags.nonBillable || flags.unbilled || flags.approval
@@ -298,7 +287,7 @@ export async function reviewCommand(args: string[]): Promise<string> {
     );
   }
 
-  if (axis === "none") return renderRaw(header, entries, flags, range.label, result.total_entries);
+  if (axis === "none") return renderRaw(header, entries, flags);
   return renderRollup(header, entries, axis, hoursOf);
 }
 
@@ -349,8 +338,6 @@ function renderRaw(
   header: Record<string, unknown>,
   entries: Record<string, unknown>[],
   flags: ReviewFlags,
-  _rangeLabel: string,
-  _totalEntries: number,
 ): string {
   const capped = entries.length > flags.limit;
   const shown = capped ? entries.slice(0, flags.limit) : entries;
@@ -396,7 +383,12 @@ function renderRaw(
     }
   }
 
-  const suggestions: string[] = ["Run `harvest-axi entries get <id>` for one entry's full detail"];
+  const suggestions: string[] = [
+    "Run `harvest-axi entries get <id>` for one entry's full detail",
+    // An agent that drilled to raw rows is one step from wanting them in a
+    // script — hand off to the batch surface that carries the export flags.
+    "Run `harvest-axi entries list --json-out` to export the same entries for a script",
+  ];
   if (capped) {
     suggestions.unshift(
       `Showing ${flags.limit} of ${entries.length} matched entries — raise --limit or narrow the window/scope to see the rest`,
