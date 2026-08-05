@@ -72,6 +72,19 @@ files are `0600`; an explicit `=path` is written with your umask.
 
 `harvest-axi invoices` lists/reviews invoices and builds **drafts** — it never sends, finalizes, closes, or records payments (do those in Harvest). Create free-form or `--from-tracked` time; `edit`/`delete` act on drafts only.
 
+**Downloading the PDF.** Harvest publishes each invoice at a public `client_key` URL;
+`invoices pdf <id>` fetches it so you don't have to `curl` it yourself:
+
+```sh
+harvest-axi invoices pdf 13150403                        # → $TMPDIR/harvest-axi/invoice-<number>-<id>.pdf
+harvest-axi invoices pdf 13150403 --out=~/Desktop/inv.pdf
+```
+
+That URL is **public and unauthenticated** — anyone holding the link can read the
+invoice — so auto-named downloads are written `0600`. An explicit `--out=<path>` is
+yours to place, and uses the default umask. `invoices get <id>` shows the same `web` and
+`pdf` links and points at this command.
+
 Line items can link to a **project** via a trailing segment on `--line`/`--update-line` (`kind|unit_price|qty|desc|project`). The project accepts an **id or name** — resolved to Harvest's `project_id` — and reads back as the project's **name**:
 
 ```sh

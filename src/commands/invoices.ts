@@ -1,7 +1,15 @@
 import { AxiError } from "axi-sdk-js";
 import { normalizeArgs, rejectUnknownFlag, rejectUnknownPositional } from "../cli/args.js";
 import { readConfig } from "../config.js";
-import { buildExport, parseExportRequest, type ExportRequest } from "../output/export.js";
+import {
+  assertAttachedValueForm,
+  buildExport,
+  parseExportRequest,
+  resolveOutPath,
+  type ExportRequest,
+} from "../output/export.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { harvestRequest } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import { resolveEntity } from "../harvest/resolve.js";
@@ -14,6 +22,7 @@ reads (Admin/Manager only — a non-manager token gets FORBIDDEN):
   (none)                   list/review invoices (totals + by-state header)
   get <id>                 full detail: money, lifecycle, links, line items,
                            payments, messages
+  pdf <id> [--out=<path>]  download the invoice PDF (bare → OS temp dir)
 list filters:
   --state <s>              draft | open | paid | closed
   --drafts                 shortcut for --state draft
@@ -49,6 +58,7 @@ NOT supported by design (do these in Harvest): send/email, mark-as-sent,
 examples:
   harvest-axi invoices --drafts
   harvest-axi invoices get 13150403
+  harvest-axi invoices pdf 13150403 --out=~/Desktop/inv.pdf
   harvest-axi invoices create --client "Caltrans" --line "Service|200|10|May work|GTFS"
   harvest-axi invoices create --client "Acme" --from-tracked --project "GTFS" --last-month
   harvest-axi invoices edit 13150403 --notes "revised" --remove-line 998877
@@ -153,7 +163,7 @@ export async function invoicesCommand(rawArgs: string[]): Promise<string> {
   // Only the list read earned machine output; the writes and the detail view
   // reject the flags rather than accepting them inertly.
   const sub = rawArgs[0];
-  const isList = !["get", "create", "edit", "delete"].includes(sub);
+  const isList = !["get", "pdf", "create", "edit", "delete"].includes(sub);
   const { rest: args, request } = isList
     ? parseExportRequest(rawArgs)
     : { rest: rawArgs, request: undefined };
@@ -161,6 +171,8 @@ export async function invoicesCommand(rawArgs: string[]): Promise<string> {
   switch (args[0]) {
     case "get":
       return invoiceDetail(requireInvoiceId(args[1], "get"), args.slice(2));
+    case "pdf":
+      return invoicePdf(requireInvoiceId(args[1], "pdf"), args.slice(2));
     case "create":
       return invoiceCreate(args.slice(1));
     case "edit":
@@ -179,6 +191,106 @@ function requireInvoiceId(value: string | undefined, sub: string): string {
     ]);
   }
   return value;
+}
+
+/** Compose the public client-facing URL for an invoice, or undefined if we can't. */
+function publicInvoiceUrl(clientKey: string | undefined, baseUri: string | undefined) {
+  if (!clientKey || !baseUri) return undefined;
+  return `${baseUri.replace(/\/$/, "")}/client/invoices/${clientKey}`;
+}
+
+/** Invoice numbers are free text in Harvest and can carry `/` or spaces. */
+function safeFilePart(value: unknown): string {
+  const s = String(value ?? "").trim();
+  const cleaned = s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return cleaned || "invoice";
+}
+
+/**
+ * `invoices pdf <id>` — fetch the public PDF and write it to disk.
+ *
+ * Harvest serves each invoice as a PDF at its `client_key` URL. That endpoint is
+ * **public and unauthenticated**, so the fetch deliberately bypasses
+ * `harvestRequest`: routing it through the authed JSON client would send
+ * credentials somewhere they aren't needed and try to JSON-parse a binary body.
+ */
+async function invoicePdf(id: string, rest: string[]): Promise<string> {
+  let outPath: string | undefined;
+  const args = normalizeArgs(rest);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const eq = arg.indexOf("=");
+    const name = eq < 0 ? arg : arg.slice(0, eq);
+    if (name === "--out") {
+      if (eq < 0) {
+        // Same rule as the export flags: a space-separated value would swallow
+        // the <id> positional.
+        assertAttachedValueForm(
+          "--out",
+          args[i + 1],
+          "omit --out entirely to auto-name it under the OS temp dir",
+        );
+        throw new AxiError("--out requires a path", "VALIDATION_ERROR", [
+          "Use `--out=<path>` to choose the destination",
+          "Omit --out to auto-name the file under the OS temp dir",
+        ]);
+      }
+      outPath = arg.slice(eq + 1);
+      if (!outPath) {
+        throw new AxiError("--out= requires a path after the `=`", "VALIDATION_ERROR", [
+          "Use `--out=<path>`, or drop the flag to auto-name the file",
+        ]);
+      }
+      continue;
+    }
+    if (arg.startsWith("--")) rejectUnknownFlag(arg, ["--out"], "invoices pdf");
+    rejectUnknownPositional(arg, "invoices pdf", "`invoices pdf <id> [--out=<path>]` takes one id");
+  }
+
+  const invoice = await harvestRequest<Record<string, unknown>>(`invoices/${id}`);
+  const clientKey = invoice.client_key as string | undefined;
+  if (!clientKey) {
+    throw new AxiError(`Invoice ${id} has no public link`, "VALIDATION_ERROR", [
+      "Harvest omits client_key on some invoices — open it in Harvest to share or export it",
+    ]);
+  }
+  const baseUri = readConfig().profile_cache?.base_uri;
+  if (!baseUri) {
+    throw new AxiError("The account URL is not cached yet", "VALIDATION_ERROR", [
+      "Run `harvest-axi auth whoami --refresh` to cache it, then retry",
+    ]);
+  }
+
+  const url = `${publicInvoiceUrl(clientKey, baseUri)}.pdf`;
+  // No auth headers: this is a public URL keyed by client_key.
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new AxiError(`Could not download invoice ${id} (HTTP ${res.status})`, "API_ERROR", [
+      "The public invoice link may have been regenerated — run `harvest-axi invoices get <id>` to re-read it",
+    ]);
+  }
+  const bytes = Buffer.from(await res.arrayBuffer());
+  // A stale key can yield an HTML error page with a 200, so trust the bytes,
+  // not the status.
+  if (!bytes.subarray(0, 5).toString("latin1").startsWith("%PDF")) {
+    throw new AxiError(`Invoice ${id} did not return a PDF`, "API_ERROR", [
+      "The public invoice link may no longer be valid — run `harvest-axi invoices get <id>` to re-read it",
+    ]);
+  }
+
+  const auto = !outPath;
+  const path = resolveOutPath(outPath, `invoice-${safeFilePart(invoice.number ?? id)}-${id}.pdf`);
+  mkdirSync(dirname(path), { recursive: true });
+  // The client_key URL is an unauthenticated bearer secret, so the artifact is
+  // sensitive even though fetching it needed no token.
+  writeFileSync(path, bytes, auto ? { mode: 0o600 } : undefined);
+
+  return renderObject({
+    wrote: `${path} (${bytes.length} bytes)`,
+    invoice: invoice.number ?? id,
+    client: nestedName(invoice, "client"),
+    amount: money2(num(invoice.amount)),
+  });
 }
 
 /**
@@ -437,9 +549,11 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
   // Public links from client_key + the account's base_uri (cached at auth setup).
   const clientKey = invoice.client_key as string | undefined;
   const baseUri = readConfig().profile_cache?.base_uri;
+  let canDownload = false;
   if (clientKey && baseUri) {
-    const url = `${baseUri.replace(/\/$/, "")}/client/invoices/${clientKey}`;
+    const url = publicInvoiceUrl(clientKey, baseUri);
     blocks.push(renderObject({ links: { web: url, pdf: `${url}.pdf` } }));
+    canDownload = true;
   } else if (clientKey) {
     blocks.push(
       renderObject({
@@ -501,6 +615,14 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
         { name: "subject", extract: (i) => i.subject ?? "—" },
       ]),
     );
+  }
+
+  // The one suggestion this view carries. Downloading is a real next action the
+  // agent can't infer from a URL sitting in the output — but only offer it when
+  // the links actually resolved, since a hint pointing at a command that will
+  // fail on a missing base_uri is worse than none.
+  if (canDownload) {
+    blocks.push(renderHelp([`Run \`harvest-axi invoices pdf ${id}\` to download the PDF`]));
   }
 
   return joinBlocks(...blocks);

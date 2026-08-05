@@ -31,7 +31,26 @@ const OUT_FLAGS: Record<string, ExportFormat> = {
  */
 function looksLikePath(token: string | undefined): boolean {
   if (!token || token.startsWith("-")) return false;
-  return token.includes("/") || /\.(json|csv|tsv)$/i.test(token);
+  return token.includes("/") || /\.(json|csv|tsv|pdf)$/i.test(token);
+}
+
+/**
+ * Guard an optional-value flag against the space form.
+ *
+ * Shared by every `--<x>-out[=path]`-shaped flag rather than copied per call
+ * site: duplicating this class of rule is what let the two `--json-out` forms
+ * drift apart in #19.
+ */
+export function assertAttachedValueForm(
+  flag: string,
+  followingToken: string | undefined,
+  autoDescription: string,
+): void {
+  if (!looksLikePath(followingToken)) return;
+  throw new AxiError(`${flag} takes its path attached with \`=\``, "VALIDATION_ERROR", [
+    `Use \`${flag}=${followingToken}\` to write there`,
+    `Use \`${flag}\` bare to ${autoDescription}`,
+  ]);
 }
 
 export interface ExportRequest {
@@ -69,11 +88,8 @@ export function parseExportRequest(args: string[]): ParsedExportArgs {
     // The space form can't be supported (it would swallow a positional), but
     // failing with a stray-positional error explains nothing — name the form
     // that works instead.
-    if (eq < 0 && looksLikePath(args[i + 1])) {
-      throw new AxiError(`${name} takes its path attached with \`=\``, "VALIDATION_ERROR", [
-        `Use \`${name}=${args[i + 1]}\` to write there`,
-        `Use \`${name}\` bare to auto-generate a path under the OS temp dir`,
-      ]);
+    if (eq < 0) {
+      assertAttachedValueForm(name, args[i + 1], "auto-generate a path under the OS temp dir");
     }
     found.push({
       flag: name,
@@ -111,10 +127,19 @@ function expandPath(path: string): string {
  * first and had to correct it.)
  */
 export function resolveExportPath(req: ExportRequest, kind: string): string {
-  if (req.path) return expandPath(req.path);
   // `:` and `.` are not filesystem-safe on every platform.
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return join(tmpdir(), "harvest-axi", `${stamp}-${kind}.${req.format}`);
+  return resolveOutPath(req.path, `${stamp}-${kind}.${req.format}`);
+}
+
+/**
+ * Resolve an explicit destination (with `~` / relative expansion) or fall back
+ * to `autoName` under the OS scratch dir. Shared so every file-writing flag
+ * resolves paths identically.
+ */
+export function resolveOutPath(explicit: string | undefined, autoName: string): string {
+  if (explicit) return expandPath(explicit);
+  return join(tmpdir(), "harvest-axi", autoName);
 }
 
 function helpLineFor(format: ExportFormat, path: string, kind: string): string {

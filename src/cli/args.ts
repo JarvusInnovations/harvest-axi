@@ -48,8 +48,16 @@ const REMOVED_FLAG_HINTS: Record<string, string> = {
     "--raw was replaced by --json-out[=path] — it advertised JSON but rendered TOON, so nothing could parse it. --json-out writes real JSON to a file; stdout keeps the normal detail view",
 };
 
-/** Flags whose value is optional and, when given, must be attached with `=`. */
-const OPTIONAL_VALUE_FLAGS = new Set(["--json-out", "--csv-out"]);
+/**
+ * Flags whose value must be attached with `=`, so `normalizeArgs` must leave
+ * their tokens intact.
+ *
+ * Splitting these would make `--x=path` indistinguishable from `--x path`, and
+ * the space form has to stay invalid — it would swallow a positional. Any new
+ * file-destination flag belongs here; omitting it makes the `=` form fail as if
+ * it were the space form.
+ */
+const ATTACHED_VALUE_FLAGS = new Set(["--json-out", "--csv-out", "--out"]);
 
 /**
  * Expand `--name=value` into separate tokens so the switch-based parsers can
@@ -73,7 +81,7 @@ export function normalizeArgs(args: string[]): string[] {
       continue;
     }
     const name = arg.slice(0, eq);
-    if (OPTIONAL_VALUE_FLAGS.has(name)) {
+    if (ATTACHED_VALUE_FLAGS.has(name)) {
       out.push(arg);
       continue;
     }
