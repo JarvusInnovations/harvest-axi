@@ -6,7 +6,13 @@ import { requireCredentials } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import { resolveEntity } from "../harvest/resolve.js";
 import { joinBlocks, renderHelp, renderList, renderObject, truncated } from "../output/index.js";
-import { normalizeArgs, rejectUnknownFlag, rejectUnknownPositional } from "../cli/args.js";
+import {
+  normalizeArgs,
+  rejectInertExportFlag,
+  rejectUnknownFlag,
+  rejectUnknownPositional,
+} from "../cli/args.js";
+import { buildExport, parseExportRequest, type ExportRequest } from "../output/export.js";
 import { assertUserScope, fetchEntries, type EntryScopeFlags } from "../harvest/entry-query.js";
 import { NAMED_WINDOWS } from "../time/ranges.js";
 
@@ -102,6 +108,9 @@ const ENTRIES_SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
   start: WRITE_FLAGS,
   stop: [],
 };
+
+/** Reads that earned machine output — see specs/behaviors/machine-output.md. */
+const EXPORTING_SUBCOMMANDS = new Set(["list", "today", "yesterday", "get"]);
 
 const APPROVAL_STATUSES = ["unsubmitted", "submitted", "approved"] as const;
 
@@ -291,6 +300,58 @@ function num(v: unknown): number {
 const nested = (i: Record<string, unknown>, k: string): string =>
   (i[k] as { name?: string } | undefined)?.name ?? "";
 
+/** Normalize a nested Harvest entity to the `{id, name}` the payload spec defines. */
+function entityOf(v: unknown): { id: unknown; name: unknown } | null {
+  if (!v || typeof v !== "object") return null;
+  const e = v as { id?: unknown; name?: unknown };
+  return { id: e.id ?? null, name: e.name ?? null };
+}
+
+/**
+ * The machine payload for one time entry.
+ *
+ * Carries `hours` **and** `rounded_hours` regardless of `--rounded`: a billing
+ * script mirrors how Harvest actually bills, so it needs the rounded figure
+ * without re-deriving the account's rounding rule. `--rounded` is a display
+ * choice and must not narrow the payload.
+ */
+function entryPayload(e: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: e.id,
+    spent_date: e.spent_date,
+    user: entityOf(e.user),
+    project: entityOf(e.project),
+    task: entityOf(e.task),
+    client: entityOf(e.client),
+    hours: e.hours ?? null,
+    rounded_hours: e.rounded_hours ?? null,
+    billable: e.billable ?? null,
+    is_billed: e.is_billed ?? null,
+    is_running: e.is_running ?? null,
+    billable_rate: e.billable_rate ?? null,
+    cost_rate: e.cost_rate ?? null,
+    notes: e.notes ?? null,
+  };
+}
+
+/**
+ * Append the export description to a rendered block, if an export was asked
+ * for. Purely additive — the TOON above is untouched.
+ */
+function withExport(
+  rendered: string,
+  request: ExportRequest | undefined,
+  entries: Record<string, unknown>[],
+): string {
+  if (!request) return rendered;
+  const outcome = buildExport(request, "entries", entries.map(entryPayload));
+  return joinBlocks(
+    rendered,
+    renderObject({ wrote: outcome.wrote, columns: outcome.columns }),
+    renderHelp([outcome.helpLine]),
+  );
+}
+
 /**
  * `entries list` — the batch read.
  *
@@ -299,7 +360,7 @@ const nested = (i: Record<string, unknown>, k: string): string =>
  * specs/behaviors/machine-output.md for why only one of the two carries the
  * export flags.
  */
-async function entriesList(rest: string[]): Promise<string> {
+async function entriesList(rest: string[], request?: ExportRequest): Promise<string> {
   const flags = parseListFlags(rest);
   assertUserScope(flags, "entries list");
   const creds = requireCredentials();
@@ -319,13 +380,17 @@ async function entriesList(rest: string[]): Promise<string> {
   if (!complete) header.capped_at_pages = pagesFetched;
 
   if (entries.length === 0) {
-    return joinBlocks(
-      renderObject(header),
-      renderObject({ entries: `0 entries found in ${rangeLabel} for ${scope}` }),
-      renderHelp([
-        "Broaden the window with --since / --from / --to",
-        "Try --team to widen the scope (manager token required)",
-      ]),
+    return withExport(
+      joinBlocks(
+        renderObject(header),
+        renderObject({ entries: `0 entries found in ${rangeLabel} for ${scope}` }),
+        renderHelp([
+          "Broaden the window with --since / --from / --to",
+          "Try --team to widen the scope (manager token required)",
+        ]),
+      ),
+      request,
+      entries,
     );
   }
 
@@ -377,10 +442,11 @@ async function entriesList(rest: string[]): Promise<string> {
     "Run `harvest-axi review` for rollups over the same window",
   );
 
-  return joinBlocks(
-    renderObject(header),
-    renderList("entries", shown, schema),
-    renderHelp(suggestions),
+  // The export carries every matched entry — `shown` is a display cap only.
+  return withExport(
+    joinBlocks(renderObject(header), renderList("entries", shown, schema), renderHelp(suggestions)),
+    request,
+    entries,
   );
 }
 
@@ -392,8 +458,8 @@ function todayStr(): string {
 export async function entriesCommand(args: string[]): Promise<string> {
   if (args.length === 0 || (args.length === 1 && args[0] === "--help")) return ENTRIES_HELP;
   const sub = args[0];
-  const rest = args.slice(1);
-  if (rest.includes("--help")) return ENTRIES_HELP;
+  const rawRest = args.slice(1);
+  if (rawRest.includes("--help")) return ENTRIES_HELP;
   // Validate the subcommand before its flags, so `entries bogus --x` reports
   // the unknown subcommand rather than a confusing unknown-flag error.
   if (!(sub in ENTRIES_SUBCOMMAND_FLAGS)) {
@@ -402,21 +468,28 @@ export async function entriesCommand(args: string[]): Promise<string> {
       "Run `harvest-axi entries --help` for usage",
     ]);
   }
+  // Export flags are global and stripped before the command's own parser; they
+  // only *act* on the read subcommands, and are rejected on the writes.
+  const { rest, request } = parseExportRequest(rawRest);
+  if (request && !EXPORTING_SUBCOMMANDS.has(sub)) {
+    rejectInertExportFlag(`--${request.format}-out`, `entries ${sub}`);
+  }
+
   // `list` has its own filter vocabulary, so it parses separately.
-  if (sub === "list") return entriesList(rest);
+  if (sub === "list") return entriesList(rest, request);
   const { flags, positionals } = parseFlags(rest, sub);
 
   switch (sub) {
     case "today":
-      return listDay(todayStr(), "today");
+      return listDay(todayStr(), "today", request);
     case "yesterday": {
       const d = new Date();
       d.setDate(d.getDate() - 1);
       const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      return listDay(ds, "yesterday");
+      return listDay(ds, "yesterday", request);
     }
     case "get":
-      return getEntry(requireId(positionals[0], "get"));
+      return getEntry(requireId(positionals[0], "get"), request);
     case "log":
       return logEntry(flags);
     case "edit":
@@ -448,7 +521,7 @@ async function selfUserId(): Promise<number> {
   return (await whoMe(requireCredentials())).user_id;
 }
 
-async function listDay(date: string, label: string): Promise<string> {
+async function listDay(date: string, label: string, request?: ExportRequest): Promise<string> {
   const userId = await selfUserId();
   const res = await paginateAll<Record<string, unknown>>("time_entries", "time_entries", {
     from: date,
@@ -457,41 +530,49 @@ async function listDay(date: string, label: string): Promise<string> {
   });
 
   if (res.items.length === 0) {
-    return joinBlocks(
-      renderObject({ date: `${date} (${label})` }),
-      renderObject({ entries: `0 entries logged on ${date}` }),
-      renderHelp([
-        'Run `harvest-axi entries log --project "<name>" --task "<name>" --hours <h>` to log time',
-      ]),
+    return withExport(
+      joinBlocks(
+        renderObject({ date: `${date} (${label})` }),
+        renderObject({ entries: `0 entries logged on ${date}` }),
+        renderHelp([
+          'Run `harvest-axi entries log --project "<name>" --task "<name>" --hours <h>` to log time',
+        ]),
+      ),
+      request,
+      res.items,
     );
   }
 
   const total = res.items.reduce((sum, e) => sum + (typeof e.hours === "number" ? e.hours : 0), 0);
-  return joinBlocks(
-    renderObject({
-      date: `${date} (${label})`,
-      entries: res.items.length,
-      total_hours: Math.round(total * 100) / 100,
-    }),
-    renderList("entries", res.items, [
-      { name: "id", extract: (i) => i.id },
-      { name: "project", extract: (i) => (i.project as { name?: string })?.name ?? "" },
-      { name: "task", extract: (i) => (i.task as { name?: string })?.name ?? "" },
-      { name: "hours", extract: (i) => i.hours },
-      truncated("notes", 50),
-      { name: "running", extract: (i) => i.is_running },
-    ]),
-    renderHelp([
-      "Run `harvest-axi entries get <id>` for full detail, or `entries log ...` to add time",
-    ]),
+  return withExport(
+    joinBlocks(
+      renderObject({
+        date: `${date} (${label})`,
+        entries: res.items.length,
+        total_hours: Math.round(total * 100) / 100,
+      }),
+      renderList("entries", res.items, [
+        { name: "id", extract: (i) => i.id },
+        { name: "project", extract: (i) => (i.project as { name?: string })?.name ?? "" },
+        { name: "task", extract: (i) => (i.task as { name?: string })?.name ?? "" },
+        { name: "hours", extract: (i) => i.hours },
+        truncated("notes", 50),
+        { name: "running", extract: (i) => i.is_running },
+      ]),
+      renderHelp([
+        "Run `harvest-axi entries get <id>` for full detail, or `entries log ...` to add time",
+      ]),
+    ),
+    request,
+    res.items,
   );
 }
 
-async function getEntry(id: number): Promise<string> {
+async function getEntry(id: number, request?: ExportRequest): Promise<string> {
   const e = await harvestRequest<Record<string, unknown>>(`time_entries/${id}`);
   const nested = (k: string) => (e[k] as { name?: string } | undefined)?.name ?? "";
   // Self-contained detail view — full notes, no truncation, no suggestions.
-  return renderObject({
+  const detail = renderObject({
     id: e.id,
     spent_date: e.spent_date,
     user: (e.user as { name?: string })?.name ?? "",
@@ -508,6 +589,9 @@ async function getEntry(id: number): Promise<string> {
     ended_time: e.ended_time ?? "",
     notes: e.notes ?? "",
   });
+  // A single record still exports as a one-element `entries` array, so the
+  // same `jq` idiom works here as on the batch surfaces.
+  return withExport(detail, request, [e]);
 }
 
 /** Returns the account's timer mode, or undefined when not cached (lenient). */

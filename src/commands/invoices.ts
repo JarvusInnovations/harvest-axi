@@ -6,6 +6,7 @@ import {
   rejectUnknownPositional,
 } from "../cli/args.js";
 import { readConfig } from "../config.js";
+import { buildExport, parseExportRequest, type ExportRequest } from "../output/export.js";
 import { harvestRequest } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import { resolveEntity } from "../harvest/resolve.js";
@@ -151,8 +152,16 @@ function money2(n: number): number {
 const nestedName = (entry: Record<string, unknown>, key: string): string =>
   (entry[key] as { name?: string } | undefined)?.name ?? "—";
 
-export async function invoicesCommand(args: string[]): Promise<string> {
-  if (args.includes("--help")) return INVOICES_HELP;
+export async function invoicesCommand(rawArgs: string[]): Promise<string> {
+  if (rawArgs.includes("--help")) return INVOICES_HELP;
+
+  // Only the list read earned machine output; the writes and the detail view
+  // reject the flags rather than accepting them inertly.
+  const sub = rawArgs[0];
+  const isList = !["get", "create", "edit", "delete"].includes(sub);
+  const { rest: args, request } = isList
+    ? parseExportRequest(rawArgs)
+    : { rest: rawArgs, request: undefined };
 
   switch (args[0]) {
     case "get":
@@ -164,7 +173,7 @@ export async function invoicesCommand(args: string[]): Promise<string> {
     case "delete":
       return invoiceDelete(requireInvoiceId(args[1], "delete"));
     default:
-      return invoiceList(args);
+      return invoiceList(args, request);
   }
 }
 
@@ -177,8 +186,52 @@ function requireInvoiceId(value: string | undefined, sub: string): string {
   return value;
 }
 
-async function invoiceList(args: string[]): Promise<string> {
+/**
+ * The machine payload for one invoice — the fields a script needs to filter to
+ * a project and sum for cumulative-invoiced / remaining-budget math.
+ */
+function invoicePayload(i: Record<string, unknown>): Record<string, unknown> {
+  const entity = (v: unknown) => {
+    if (!v || typeof v !== "object") return null;
+    const e = v as { id?: unknown; name?: unknown };
+    return { id: e.id ?? null, name: e.name ?? null };
+  };
+  return {
+    id: i.id,
+    number: i.number ?? null,
+    amount: i.amount ?? null,
+    due_amount: i.due_amount ?? null,
+    currency: i.currency ?? null,
+    issue_date: i.issue_date ?? null,
+    due_date: i.due_date ?? null,
+    state: i.state ?? null,
+    sent_at: i.sent_at ?? null,
+    paid_at: i.paid_at ?? null,
+    paid_date: i.paid_date ?? null,
+    paid_amount: i.paid_amount ?? null,
+    client: entity(i.client),
+    project: entity(i.project),
+  };
+}
+
+/** Append the export description. Purely additive — the TOON above is untouched. */
+function withExport(
+  rendered: string,
+  request: ExportRequest | undefined,
+  invoices: Record<string, unknown>[],
+): string {
+  if (!request) return rendered;
+  const outcome = buildExport(request, "invoices", invoices.map(invoicePayload));
+  return joinBlocks(
+    rendered,
+    renderObject({ wrote: outcome.wrote, columns: outcome.columns }),
+    renderHelp([outcome.helpLine]),
+  );
+}
+
+async function invoiceList(rawArgs: string[], request?: ExportRequest): Promise<string> {
   const positionals: string[] = [];
+  const args = rawArgs;
   const flags = parseListFlags(args, positionals);
   // A stray positional here is almost always a mistyped subcommand
   // (`invoices detail 123`), which would otherwise silently list everything.
@@ -260,16 +313,20 @@ async function invoiceList(args: string[]): Promise<string> {
   if (!result.complete) header.capped_at_pages = result.pages_fetched;
 
   if (invoices.length === 0) {
-    return joinBlocks(
-      renderObject(header),
-      renderObject({
-        invoices: `0 invoices found${scopeParts.length ? ` for ${scopeParts.join(" · ")}` : ""}${range ? ` in ${range.label}` : ""}`,
-      }),
-      renderHelp([
-        flags.state || flags.client || flags.project
-          ? "Drop the --state/--client/--project filters to widen the search"
-          : "Broaden with a --from/--to or --last-month window",
-      ]),
+    return withExport(
+      joinBlocks(
+        renderObject(header),
+        renderObject({
+          invoices: `0 invoices found${scopeParts.length ? ` for ${scopeParts.join(" · ")}` : ""}${range ? ` in ${range.label}` : ""}`,
+        }),
+        renderHelp([
+          flags.state || flags.client || flags.project
+            ? "Drop the --state/--client/--project filters to widen the search"
+            : "Broaden with a --from/--to or --last-month window",
+        ]),
+      ),
+      request,
+      invoices,
     );
   }
 
@@ -291,19 +348,24 @@ async function invoiceList(args: string[]): Promise<string> {
   if (!flags.state)
     suggestions.push("Run `harvest-axi invoices --drafts` to review draft invoices");
 
-  return joinBlocks(
-    renderObject(header),
-    renderList("invoices", shown, [
-      { name: "id", extract: (i) => i.id },
-      { name: "number", extract: (i) => i.number ?? "—" },
-      { name: "client", extract: (i) => nestedName(i, "client") },
-      { name: "state", extract: (i) => i.state },
-      { name: "amount", extract: (i) => money2(num(i.amount)) },
-      { name: "due", extract: (i) => money2(num(i.due_amount)) },
-      { name: "issue_date", extract: (i) => i.issue_date ?? "—" },
-      { name: "due_date", extract: (i) => i.due_date ?? "—" },
-    ]),
-    renderHelp(suggestions),
+  // The export carries every matched invoice — `shown` is a display cap only.
+  return withExport(
+    joinBlocks(
+      renderObject(header),
+      renderList("invoices", shown, [
+        { name: "id", extract: (i) => i.id },
+        { name: "number", extract: (i) => i.number ?? "—" },
+        { name: "client", extract: (i) => nestedName(i, "client") },
+        { name: "state", extract: (i) => i.state },
+        { name: "amount", extract: (i) => money2(num(i.amount)) },
+        { name: "due", extract: (i) => money2(num(i.due_amount)) },
+        { name: "issue_date", extract: (i) => i.issue_date ?? "—" },
+        { name: "due_date", extract: (i) => i.due_date ?? "—" },
+      ]),
+      renderHelp(suggestions),
+    ),
+    request,
+    sorted,
   );
 }
 

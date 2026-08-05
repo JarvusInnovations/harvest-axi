@@ -138,6 +138,51 @@ export function performExport(
   };
 }
 
+/**
+ * Flatten a record for CSV: a nested `{id, name}` entity becomes `<key>` (the
+ * name) plus `<key>_id`, so a spreadsheet keeps the readable label and a script
+ * keeps the stable id. Lossy by design — JSON is the round-trippable format.
+ */
+export function flattenRecord(rec: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rec)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const entity = value as { id?: unknown; name?: unknown };
+      out[key] = entity.name ?? "";
+      out[`${key}_id`] = entity.id ?? "";
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * Build and write an export from a record set.
+ *
+ * JSON nests under `kind` (`{"entries": [...]}`) so one `jq` idiom works for
+ * every surface, including single-record ones. CSV gets the flattened form.
+ */
+export function buildExport(
+  req: ExportRequest,
+  kind: string,
+  records: Record<string, unknown>[],
+): ExportOutcome {
+  if (req.format === "csv") {
+    const flat = records.map(flattenRecord);
+    const columns = flat.length ? Object.keys(flat[0]) : [];
+    return performExport(req, kind, toCsv(flat, columns), {
+      rows: flat.length,
+      columns,
+    });
+  }
+  const columns = records.length ? Object.keys(records[0]) : [];
+  return performExport(req, kind, `${JSON.stringify({ [kind]: records }, null, 2)}\n`, {
+    rows: records.length,
+    columns,
+  });
+}
+
 /** Serialize rows to CSV. Flat and lossy by nature — reporting, not round-trip. */
 export function toCsv(rows: Record<string, unknown>[], columns: string[]): string {
   const cell = (v: unknown): string => {
