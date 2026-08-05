@@ -9,6 +9,7 @@ import { joinBlocks, renderHelp, renderList, renderObject } from "../output/inde
 import { parseRange, type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
 import {
   normalizeArgs,
+  rejectContradiction,
   rejectInertExportFlag,
   rejectUnknownFlag,
   rejectUnknownPositional,
@@ -19,12 +20,12 @@ time window (default: last 7d for you, this-week for --team):
   --since <dur>        7d | 2w | 1m
   --from <date> --to <date>
   --today --yesterday --this-week --last-week --this-month --last-month
-scope (default: your own entries):
+scope (default: your own entries; --team and --user are mutually exclusive):
   --team               all users your token can see
-  --user <id>          a specific user (names land with the browse plan)
-  --project <id>       one project
-  --client <id>        one client
-  --task <id>          one task
+  --user <id|name>     a specific user
+  --project <id|name>  one project
+  --client <id|name>   one client
+  --task <id|name>     one task
 refine:
   --billable | --non-billable
   --unbilled           uninvoiced entries only
@@ -227,6 +228,23 @@ function groupKey(entry: Record<string, unknown>, axis: Axis): string {
   }
 }
 
+/**
+ * `--team` ("all users") and `--user` ("this one") contradict each other.
+ *
+ * Letting `--team` win silently returned whole-team totals under a single-user
+ * label (#14) — plausible-looking output that nothing downstream could detect
+ * as wrong. Rejected before any resolve call, so the bad combination costs no
+ * API round trip.
+ */
+export function assertUserScope(flags: { team: boolean; user?: string }): void {
+  if (flags.team && flags.user !== undefined) {
+    rejectContradiction("--team", "--user", "review", [
+      "Use `--user <id|name>` alone to scope to one user",
+      "Use `--team --by user` for a per-user breakdown of the whole team",
+    ]);
+  }
+}
+
 async function resolveSelfUserId(creds: Credentials): Promise<number> {
   const cached = readConfig().default_user_id;
   if (cached) return cached;
@@ -236,6 +254,7 @@ async function resolveSelfUserId(creds: Credentials): Promise<number> {
 export async function reviewCommand(args: string[]): Promise<string> {
   if (args.includes("--help")) return REVIEW_HELP;
   const flags = parseReviewFlags(args);
+  assertUserScope(flags);
   const creds = requireCredentials();
 
   // Window: default depends on scope.
@@ -253,6 +272,8 @@ export async function reviewCommand(args: string[]): Promise<string> {
   const client = flags.client ? await resolveEntity("client", flags.client) : undefined;
   const task = flags.task ? await resolveEntity("task", flags.task) : undefined;
 
+  // Exactly one user scope applies. `assertUserScope` already rejected
+  // --team + --user, so this chain's ordering is no longer load-bearing.
   if (flags.team) {
     scopeParts.push("team");
   } else if (user) {
