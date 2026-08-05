@@ -2,10 +2,9 @@ import { AxiError } from "axi-sdk-js";
 import { requireCredentials } from "../harvest/client.js";
 import { assertUserScope, fetchEntries } from "../harvest/entry-query.js";
 import { joinBlocks, renderHelp, renderList, renderObject } from "../output/index.js";
-import { parseRange, type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
+import { type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
 import {
   normalizeArgs,
-  rejectContradiction,
   rejectInertExportFlag,
   rejectUnknownFlag,
   rejectUnknownPositional,
