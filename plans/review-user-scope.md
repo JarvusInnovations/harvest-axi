@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [flag-validation]
 specs:
   - specs/commands/review.md
@@ -56,12 +56,12 @@ and whole-team totals come back under a single-user label.
 
 ## Validation
 
-- [ ] `review --team --user <id>` exits 2 naming both flags and suggesting both alternatives — no API call made
-- [ ] `review --user <id> --from … --to …` returns only that user's entries; three distinct ids return three distinct totals (the issue's exact repro, inverted)
-- [ ] Those per-user totals sum to the `--team` total over the same window
-- [ ] `review --user <unknown-name>` errors naming the unmatched value; it never returns an unfiltered result
-- [ ] `--team` alone and `--user` alone are both unchanged from today
-- [ ] Regression test pinning the #14 repro shape so precedence can't silently return
+- [x] `review --team --user <id>` exits 2 naming both flags and suggesting both alternatives — no API call made
+- [x] `review --user <id> --from … --to …` returns only that user's entries; three distinct ids return three distinct totals (the issue's exact repro, inverted)
+- [x] Those per-user totals sum to the `--team` total over the same window
+- [x] `review --user <unknown-name>` errors naming the unmatched value; it never returns an unfiltered result
+- [x] `--team` alone and `--user` alone are both unchanged from today
+- [x] Regression test pinning the #14 repro shape so precedence can't silently return
 
 ## Risks / unknowns
 
@@ -72,3 +72,23 @@ and whole-team totals come back under a single-user label.
 - **Scope-label drift.** `scopeParts` builds the header's `scope:` string; confirm the
   single-user path stamps `user <name>` so the window/scope echo stays honest per
   [Human time in, stamped range out](../specs/principles.md#human-time-in-stamped-range-out).
+
+## Notes
+
+- **The issue's framing was wrong and the plan records why**, since it would
+  otherwise be re-litigated: #14 reads like the CLI-wide silent-flag-drop, but
+  `--user` was parsed, resolved, *and* wired into the query. Only precedence was
+  broken. Unknown-flag validation (`flag-validation`) does not close this.
+- `assertUserScope` lives in `src/harvest/entry-query.ts` rather than
+  `review.ts`, so `entries list` inherits the same guard instead of
+  reimplementing it — the same anti-drift reasoning as the shared query builder.
+- Also corrected `--user`'s help text, which still said name resolution was
+  unimplemented; `resolveEntity` has handled it since the browse plan.
+- 5 regression tests pin the repro shape, including three distinct user ids
+  returning three distinct totals (previously all identical).
+
+## Follow-ups
+
+- **Release notes** must call out that `--team --user` now hard-errors. Anyone
+  passing both today is silently getting team totals; the fix is correct but
+  visible.

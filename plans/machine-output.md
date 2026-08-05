@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [flag-validation, entries-list]
 specs:
   - specs/behaviors/machine-output.md
@@ -84,18 +84,18 @@ script-vs-model test, its scoping, and its insistence on both `hours` and
 
 ## Validation
 
-- [ ] `entries list --json-out` prints the normal TOON **unchanged**, plus `wrote:` / `columns:` / `help[]`; the file holds the full payload at mode `0600`
-- [ ] stdout with and without `--json-out` is byte-identical apart from the three appended lines (diff-tested, not eyeballed)
-- [ ] `--json-out=/explicit/path.json` writes exactly there, with the default umask
-- [ ] The printed `jq` example **executes successfully** against the file just written, for both entries and invoices
-- [ ] `entries list --limit 5 --json-out` shows 5 rows on stdout and every matched entry in the file
-- [ ] Entry payloads carry both `hours` and `rounded_hours`, and both `{id, name}` for nested entities; `--rounded` changes the display column but not the payload
-- [ ] `invoices --json-out` payload sums to the same total the TOON header reports
-- [ ] `--csv-out` opens cleanly in a spreadsheet; nested entities appear as name + `_id` columns
-- [ ] `--json-out --csv-out` together exits 2
-- [ ] `invoices 123 --raw` and `entries list --json` exit 2 with targeted hints naming `--json-out`
-- [ ] `review --by none --json-out` is **rejected** with a message pointing at `entries list`
-- [ ] Auto-path files land under `$TMPDIR/harvest-axi/`, never `~/.config/harvest-axi`
+- [x] `entries list --json-out` prints the normal TOON **unchanged**, plus `wrote:` / `columns:` / `help[]`; the file holds the full payload at mode `0600`
+- [x] stdout with and without `--json-out` is byte-identical apart from the three appended lines (diff-tested, not eyeballed)
+- [x] `--json-out=/explicit/path.json` writes exactly there, with the default umask
+- [x] The printed `jq` example **executes successfully** against the file just written, for both entries and invoices
+- [x] `entries list --limit 5 --json-out` shows 5 rows on stdout and every matched entry in the file
+- [x] Entry payloads carry both `hours` and `rounded_hours`, and both `{id, name}` for nested entities; `--rounded` changes the display column but not the payload
+- [x] `invoices --json-out` payload sums to the same total the TOON header reports
+- [x] `--csv-out` opens cleanly in a spreadsheet; nested entities appear as name + `_id` columns
+- [x] `--json-out --csv-out` together exits 2
+- [x] `invoices 123 --raw` and `entries list --json` exit 2 with targeted hints naming `--json-out`
+- [x] `review --by none --json-out` is **rejected** with a message pointing at `entries list`
+- [x] Auto-path files land under `$TMPDIR/harvest-axi/`, never `~/.config/harvest-axi`
 
 ## Risks / unknowns
 
@@ -111,3 +111,34 @@ script-vs-model test, its scoping, and its insistence on both `hours` and
   one-element array for `jq` uniformity; confirm against the help-line test.
 - **Timestamp in auto-paths** must be filesystem-safe on every platform — metabase
   replaces `:` and `.` in the ISO string for exactly this reason.
+
+## Notes
+
+- **Deviated from the plan on CSV:** hand-rolled RFC 4180 quoting in
+  `toCsv` instead of adding `csv-stringify`. The rows are flat scalars after
+  `flattenRecord`, so the escape rule is ~10 lines (quote when the cell contains
+  `"`, `,`, CR or LF; double embedded quotes) and a dependency wasn't worth it.
+- **`entries get` exports as a one-element `entries` array**, resolving the open
+  question in the risks — one `jq` idiom then works across every surface,
+  batch or single.
+- The `jq` help lines are **executed** by the tests via `execFileSync`, not
+  pattern-matched. This is the assertion most likely to rot silently as payload
+  shapes change, and eyeballing it would not have caught a wrong path or filter.
+- stdout-unchanged is asserted with `exported.startsWith(plain)` rather than a
+  fuzzy match, so any drift in the TOON view fails the test.
+- `--raw` removal landed in `flag-validation` (see its notes).
+- Live-verified against the real account: 57-row JSON export at mode `0600` under
+  `$TMPDIR/harvest-axi/`, the printed `jq` returning 29.5 billable rounded hours,
+  a 17-row CSV with `project,project_id` flattening, plus the `--raw`,
+  two-flag, and write-surface rejections.
+- 236 tests (+17) in `test/output/export.test.ts`.
+
+## Follow-ups
+
+- **`--xlsx-out`** — deliberately not shipped. metabase-axi has it; add here only
+  if a spreadsheet use case actually appears, per the earned-not-uniform rule.
+- **Extract the shared export layer** if a fifth org tool adopts this. There are
+  now four near-identical `parseExportRequest`/`performExport` implementations
+  (metabase-axi, otter-axi, gitsheets-axi, harvest-axi); a shared package
+  belongs in `axi-sdk-js`, not copied a fifth time. Not actioned here — that's an
+  SDK decision, not a harvest-axi one.

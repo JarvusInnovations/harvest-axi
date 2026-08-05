@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [flag-validation]
 specs:
   - specs/commands/entries.md
@@ -51,14 +51,14 @@ writing a second one.
 
 ## Validation
 
-- [ ] `entries list` defaults to self / `--since 7d` and returns row-first output with a stamped range header
-- [ ] Every filter matches `review`'s behavior over the same window: `--project`, `--client`, `--task`, `--user`, `--team`, `--billable`, `--non-billable`, `--unbilled`, `--approval`
-- [ ] `entries list --project X --from A --to B` and `review --project X --from A --to B --by none` return the **same** entry ids — proving the shared builder, not a second implementation
-- [ ] `complete: true` on a fully-paginated result; `--limit` cap announced loudly when hit
-- [ ] Empty result → definitive empty state with broaden/scope hints
-- [ ] `--team --user <id>` rejected here too (inherited from [`review-user-scope`](review-user-scope.md))
-- [ ] `--fields rounded_hours,billable_rate` adds those columns
-- [ ] `review` output is byte-identical to before the extraction, at every `--by` axis
+- [x] `entries list` defaults to self / `--since 7d` and returns row-first output with a stamped range header
+- [x] Every filter matches `review`'s behavior over the same window: `--project`, `--client`, `--task`, `--user`, `--team`, `--billable`, `--non-billable`, `--unbilled`, `--approval`
+- [x] `entries list --project X --from A --to B` and `review --project X --from A --to B --by none` return the **same** entry ids — proving the shared builder, not a second implementation
+- [x] `complete: true` on a fully-paginated result; `--limit` cap announced loudly when hit
+- [x] Empty result → definitive empty state with broaden/scope hints
+- [x] `--team --user <id>` rejected here too (inherited from [`review-user-scope`](review-user-scope.md))
+- [x] `--fields rounded_hours,billable_rate` adds those columns
+- [x] `review` output is byte-identical to before the extraction, at every `--by` axis
 
 ## Risks / unknowns
 
@@ -74,3 +74,24 @@ writing a second one.
 - **`--rounded` semantics.** On `review` it swaps the displayed `hours` column. Keep that
   meaning here so the vocabulary stays consistent, even though the machine payload will
   carry both figures regardless.
+
+## Notes
+
+- **The extraction was the whole job.** `src/harvest/entry-query.ts` now owns
+  window + scope + fetch + client-side refinements; `review` and `entries list`
+  both call it. The existing review suite passed untouched through the refactor,
+  which is the evidence that it was behavior-preserving, and a new test asserts
+  both commands return the same entry ids for the same window.
+- `--fields` validates at **parse** time, not while building the schema. The
+  first cut validated in the schema loop, so an unknown column cost an API round
+  trip before failing — caught by a test asserting `fetch` was never called.
+- `--fields` gained `is_billed`, `rounded_hours`, and `billable_rate` over
+  review's set; the machine payload carries all of them regardless.
+- 219 tests (+17), 12 of them in `test/commands/entries-list.test.ts`.
+
+## Follow-ups
+
+- **Watch the surface overlap in practice.** `entries list` and
+  `review --by none` return the same rows with different framing. If agents
+  reach for the wrong one, the fix is sharper help text — not merging them back
+  together, since only one is a machine-output surface.

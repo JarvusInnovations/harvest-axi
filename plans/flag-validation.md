@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: []
 specs:
   - specs/behaviors/flag-validation.md
@@ -65,14 +65,14 @@ logic per command and keeps each command's flag semantics where they already liv
 
 ## Validation
 
-- [ ] `harvest-axi review --stat closed` exits 2 naming `--stat` and listing review's valid flags inline
-- [ ] Every named window (`--today` … `--last-month`) still resolves on `review`, `entries`, `invoices`, `estimates`, `reports` — no regression from the new `default:` branch
-- [ ] `harvest-axi entries log --projekt X` is rejected against `log`'s subcommand flag set, not a merged `entries` set
-- [ ] `--json-out=/tmp/x.json` and bare `--json-out` both parse to the same flag name (`=` normalization proven by unit test)
-- [ ] A bare legacy flag with no trailing value (`harvest-axi invoices 123 --raw`) reaches its migration hint rather than crashing in the parser
-- [ ] `--approval bogus` and `--state bogus` list their valid vocabularies
-- [ ] `--help` passes on every command and subcommand, never reported unknown
-- [ ] Full suite green; no command's `default:` branch silently `break`s on a `--` token
+- [x] `harvest-axi review --stat closed` exits 2 naming `--stat` and listing review's valid flags inline
+- [x] Every named window (`--today` … `--last-month`) still resolves on `review`, `entries`, `invoices`, `estimates`, `reports` — no regression from the new `default:` branch
+- [x] `harvest-axi entries log --projekt X` is rejected against `log`'s subcommand flag set, not a merged `entries` set
+- [x] `--json-out=/tmp/x.json` and bare `--json-out` both parse to the same flag name (`=` normalization proven by unit test)
+- [x] A bare legacy flag with no trailing value (`harvest-axi invoices 123 --raw`) reaches its migration hint rather than crashing in the parser
+- [x] `--approval bogus` and `--state bogus` list their valid vocabularies
+- [x] `--help` passes on every command and subcommand, never reported unknown
+- [x] Full suite green; no command's `default:` branch silently `break`s on a `--` token
 
 ## Risks / unknowns
 
@@ -85,3 +85,32 @@ logic per command and keeps each command's flag semantics where they already liv
   from `--help`. Those are the ones most likely to be missed; the diff above is the guard.
 - **Ordering with `machine-output`.** Both edit every `parseFlags`. Land this first; the
   export plan then adds two entries to already-existing `KNOWN` arrays.
+
+## Notes
+
+- **Kept the switch parsers** rather than porting hq's shared `parseArgs`, as
+  planned. `normalizeArgs` splits `--name=value` *except* for the export flags:
+  splitting those would make `--json-out=path` indistinguishable from
+  `--json-out path`, and the space form must stay invalid so it can't swallow a
+  positional. They're stripped upstream by `parseExportRequest` instead.
+- **`--raw` removal landed here, not in `machine-output`.** The removed-flag
+  hint table lives in this plan, and a half-state (table says removed, code
+  still honors it) is worse than either end state. Found by a test:
+  `invoices get --raw` bypassed `parseListFlags` entirely because
+  `invoiceDetail` read `rest.includes("--raw")` itself, so the hint never fired
+  and the command hit the network.
+- **`src/output/export.ts` was committed here** though it belongs to
+  `machine-output` — inert (nothing imported it) until that plan wired it up.
+- `auth` needed a second guard beyond the `default:` branch: `--token` is a real
+  case in the shared switch, so `auth whoami --token x` parsed fine and had to
+  be rejected against the *subcommand's* set afterward.
+- `reports expenses <axis>` takes a positional, so `parseReportsFlags` collects
+  positionals and the dispatcher rejects them for every report type but that one.
+- 202 tests (+32): `test/cli/args.test.ts` (11 unit) and
+  `test/cli/flag-validation.test.ts` (20 command-level, each asserting `fetch`
+  was never called).
+
+## Follow-ups
+
+- None. The `--help`-vs-switch flag diff called for in the risks turned up no
+  undocumented flags — every switch case was already in its help text.
