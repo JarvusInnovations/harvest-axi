@@ -6,12 +6,24 @@ import { requireCredentials } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import { resolveEntity } from "../harvest/resolve.js";
 import { joinBlocks, renderHelp, renderList, renderObject, truncated } from "../output/index.js";
-import { normalizeArgs, rejectUnknownFlag } from "../cli/args.js";
+import { normalizeArgs, rejectUnknownFlag, rejectUnknownPositional } from "../cli/args.js";
+import { assertUserScope, fetchEntries, type EntryScopeFlags } from "../harvest/entry-query.js";
+import { NAMED_WINDOWS } from "../time/ranges.js";
 
 export const ENTRIES_HELP = `usage: harvest-axi entries <subcommand> [args] [flags]
 reads:
+  list                     batch read: every entry matching a scope + window
   today | yesterday        your entries for that day
   get <id>                 full detail of one entry
+list filters (same vocabulary as \`review\`):
+  --since <dur> | --from <date> --to <date> | --today --this-week --last-month …
+  --team | --user <id|name>   (mutually exclusive)
+  --project <id|name>  --client <id|name>  --task <id|name>
+  --billable | --non-billable   --unbilled   --approval <status>
+  --rounded                display rounded_hours in the hours column
+  --limit <n>              cap displayed rows (default 200; exports ignore it)
+  --fields <list>          notes, billable, is_billed, approval, client,
+                           rounded_hours, billable_rate
 writes (default: your own entries; --user <id|name> to act on another):
   log                      create an entry
   edit <id>                update fields on an entry
@@ -25,6 +37,7 @@ log/edit flags:
   --date <YYYY-MM-DD>      default: today
   --notes "<text>"
 examples:
+  harvest-axi entries list --project "GTFS Pathways" --last-month
   harvest-axi entries today
   harvest-axi entries log --project "GTFS Pathways" --task "T2: Project Management" --hours 1.5 --notes "spec review"
   harvest-axi entries edit 12345 --notes "updated"
@@ -58,7 +71,28 @@ const WRITE_FLAGS = [
   "--ended",
 ] as const;
 
+/** `entries list` shares review's filter vocabulary, so the two read alike. */
+const LIST_FLAGS = [
+  "--from",
+  "--to",
+  "--since",
+  "--team",
+  "--user",
+  "--project",
+  "--client",
+  "--task",
+  "--billable",
+  "--non-billable",
+  "--unbilled",
+  "--approval",
+  "--rounded",
+  "--limit",
+  "--fields",
+  ...NAMED_WINDOWS.map((w) => `--${w}`),
+] as const;
+
 const ENTRIES_SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
+  list: LIST_FLAGS,
   today: [],
   yesterday: [],
   get: [],
@@ -68,6 +102,128 @@ const ENTRIES_SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
   start: WRITE_FLAGS,
   stop: [],
 };
+
+const APPROVAL_STATUSES = ["unsubmitted", "submitted", "approved"] as const;
+
+/** Opt-in columns for `entries list --fields`. */
+const EXTRA_COLUMNS = [
+  "notes",
+  "billable",
+  "is_billed",
+  "approval",
+  "client",
+  "rounded_hours",
+  "billable_rate",
+] as const;
+
+interface ListFlags extends EntryScopeFlags {
+  rounded: boolean;
+  limit: number;
+  fields: string[];
+}
+
+function parseListFlags(rawArgs: string[]): ListFlags {
+  const flags: ListFlags = {
+    range: {},
+    team: false,
+    unbilled: false,
+    rounded: false,
+    limit: 200,
+    fields: [],
+  };
+  const args = normalizeArgs(rawArgs);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const next = args[i + 1];
+    switch (arg) {
+      case "--from":
+        flags.range.from = next;
+        i++;
+        break;
+      case "--to":
+        flags.range.to = next;
+        i++;
+        break;
+      case "--since":
+        flags.range.since = next;
+        i++;
+        break;
+      case "--team":
+        flags.team = true;
+        break;
+      case "--user":
+        flags.user = next;
+        i++;
+        break;
+      case "--project":
+        flags.project = next;
+        i++;
+        break;
+      case "--client":
+        flags.client = next;
+        i++;
+        break;
+      case "--task":
+        flags.task = next;
+        i++;
+        break;
+      case "--billable":
+        flags.billable = true;
+        break;
+      case "--non-billable":
+        flags.nonBillable = true;
+        break;
+      case "--unbilled":
+        flags.unbilled = true;
+        break;
+      case "--approval": {
+        if (!APPROVAL_STATUSES.includes(next as (typeof APPROVAL_STATUSES)[number])) {
+          throw new AxiError(`Unknown --approval status "${next}"`, "VALIDATION_ERROR", [
+            `Valid statuses: ${APPROVAL_STATUSES.join(", ")}`,
+          ]);
+        }
+        flags.approval = next;
+        i++;
+        break;
+      }
+      case "--rounded":
+        flags.rounded = true;
+        break;
+      case "--limit":
+        flags.limit = Math.max(1, parseInt(next, 10) || 200);
+        i++;
+        break;
+      case "--fields":
+        flags.fields = next
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        // Validate here, not while building the schema — an unknown column
+        // must not cost an API round trip.
+        for (const f of flags.fields) {
+          if (!(EXTRA_COLUMNS as readonly string[]).includes(f)) {
+            throw new AxiError(`Unknown --fields column "${f}"`, "VALIDATION_ERROR", [
+              `Valid columns: ${EXTRA_COLUMNS.join(", ")}`,
+            ]);
+          }
+        }
+        i++;
+        break;
+      default:
+        if (arg.startsWith("--") && (NAMED_WINDOWS as readonly string[]).includes(arg.slice(2))) {
+          flags.range.named = arg.slice(2);
+          break;
+        }
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, LIST_FLAGS, "entries list");
+        rejectUnknownPositional(
+          arg,
+          "entries list",
+          "`entries list` takes flags only — run `harvest-axi entries --help` for the list",
+        );
+    }
+  }
+  return flags;
+}
 
 function parseFlags(
   rawArgs: string[],
@@ -124,6 +280,110 @@ function parseFlags(
   return { flags, positionals };
 }
 
+function round2(h: number): number {
+  return Math.round(h * 100) / 100;
+}
+
+function num(v: unknown): number {
+  return typeof v === "number" ? v : Number(v) || 0;
+}
+
+const nested = (i: Record<string, unknown>, k: string): string =>
+  (i[k] as { name?: string } | undefined)?.name ?? "";
+
+/**
+ * `entries list` — the batch read.
+ *
+ * Row-first counterpart to `review`, which answers "what do they add up to".
+ * This is the surface a script exports from; see
+ * specs/behaviors/machine-output.md for why only one of the two carries the
+ * export flags.
+ */
+async function entriesList(rest: string[]): Promise<string> {
+  const flags = parseListFlags(rest);
+  assertUserScope(flags, "entries list");
+  const creds = requireCredentials();
+
+  const { entries, rangeLabel, scope, complete, pagesFetched } = await fetchEntries(flags, creds);
+
+  const hoursOf = (e: Record<string, unknown>) => num(flags.rounded ? e.rounded_hours : e.hours);
+  const total = entries.reduce((sum, e) => sum + hoursOf(e), 0);
+
+  const header: Record<string, unknown> = {
+    range: rangeLabel,
+    scope,
+    total_hours: round2(total),
+    entries: entries.length,
+    complete,
+  };
+  if (!complete) header.capped_at_pages = pagesFetched;
+
+  if (entries.length === 0) {
+    return joinBlocks(
+      renderObject(header),
+      renderObject({ entries: `0 entries found in ${rangeLabel} for ${scope}` }),
+      renderHelp([
+        "Broaden the window with --since / --from / --to",
+        "Try --team to widen the scope (manager token required)",
+      ]),
+    );
+  }
+
+  const capped = entries.length > flags.limit;
+  const shown = capped ? entries.slice(0, flags.limit) : entries;
+
+  const schema = [
+    { name: "id", extract: (i: Record<string, unknown>) => i.id },
+    { name: "spent_date", extract: (i: Record<string, unknown>) => i.spent_date },
+    { name: "user", extract: (i: Record<string, unknown>) => nested(i, "user") },
+    { name: "project", extract: (i: Record<string, unknown>) => nested(i, "project") },
+    { name: "task", extract: (i: Record<string, unknown>) => nested(i, "task") },
+    { name: "hours", extract: (i: Record<string, unknown>) => round2(hoursOf(i)) },
+  ];
+  for (const f of flags.fields) {
+    switch (f) {
+      case "notes":
+        schema.push({ name: "notes", extract: (i) => i.notes ?? "" });
+        break;
+      case "billable":
+        schema.push({ name: "billable", extract: (i) => i.billable });
+        break;
+      case "is_billed":
+        schema.push({ name: "is_billed", extract: (i) => i.is_billed });
+        break;
+      case "approval":
+        schema.push({ name: "approval", extract: (i) => i.approval_status ?? "" });
+        break;
+      case "client":
+        schema.push({ name: "client", extract: (i) => nested(i, "client") });
+        break;
+      case "rounded_hours":
+        schema.push({ name: "rounded_hours", extract: (i) => round2(num(i.rounded_hours)) });
+        break;
+      case "billable_rate":
+        schema.push({ name: "billable_rate", extract: (i) => i.billable_rate ?? "" });
+        break;
+    }
+  }
+
+  const suggestions: string[] = [];
+  if (capped) {
+    suggestions.push(
+      `Showing ${flags.limit} of ${entries.length} matched entries — raise --limit or narrow the window/scope to see the rest`,
+    );
+  }
+  suggestions.push(
+    "Run `harvest-axi entries get <id>` for one entry's full detail",
+    "Run `harvest-axi review` for rollups over the same window",
+  );
+
+  return joinBlocks(
+    renderObject(header),
+    renderList("entries", shown, schema),
+    renderHelp(suggestions),
+  );
+}
+
 function todayStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -142,6 +402,8 @@ export async function entriesCommand(args: string[]): Promise<string> {
       "Run `harvest-axi entries --help` for usage",
     ]);
   }
+  // `list` has its own filter vocabulary, so it parses separately.
+  if (sub === "list") return entriesList(rest);
   const { flags, positionals } = parseFlags(rest, sub);
 
   switch (sub) {
