@@ -1,7 +1,19 @@
 import { AxiError } from "axi-sdk-js";
+import {
+  normalizeArgs,
+  rejectInertExportFlag,
+  rejectUnknownFlag,
+  rejectUnknownPositional,
+} from "../cli/args.js";
 import type { QueryValue } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
-import { joinBlocks, renderHelp, renderList, renderObject, type FieldDef } from "../output/index.js";
+import {
+  joinBlocks,
+  renderHelp,
+  renderList,
+  renderObject,
+  type FieldDef,
+} from "../output/index.js";
 import { parseRange, type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
 
 export const REPORTS_HELP = `usage: harvest-axi reports <type> [axis] [window] [flags]
@@ -53,21 +65,52 @@ function hasWindow(f: ReportsFlags): boolean {
   return !!(f.range.from || f.range.to || f.range.since || f.range.named);
 }
 
-function parseReportsFlags(args: string[]): ReportsFlags {
+const REPORTS_FLAGS = [
+  "--from",
+  "--to",
+  "--since",
+  "--fixed-fee",
+  "--all",
+  ...NAMED_WINDOWS.map((w) => `--${w}`),
+] as const;
+
+function parseReportsFlags(
+  rawArgs: string[],
+  command: string,
+  positionals: string[] = [],
+): ReportsFlags {
   const flags: ReportsFlags = { range: {}, fixedFee: false, all: false };
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
     switch (arg) {
-      case "--from": flags.range.from = next; i++; break;
-      case "--to": flags.range.to = next; i++; break;
-      case "--since": flags.range.since = next; i++; break;
-      case "--fixed-fee": flags.fixedFee = true; break;
-      case "--all": flags.all = true; break;
+      case "--from":
+        flags.range.from = next;
+        i++;
+        break;
+      case "--to":
+        flags.range.to = next;
+        i++;
+        break;
+      case "--since":
+        flags.range.since = next;
+        i++;
+        break;
+      case "--fixed-fee":
+        flags.fixedFee = true;
+        break;
+      case "--all":
+        flags.all = true;
+        break;
       default:
         if (arg.startsWith("--") && (NAMED_WINDOWS as readonly string[]).includes(arg.slice(2))) {
           flags.range.named = arg.slice(2);
+          break;
         }
+        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, command);
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, REPORTS_FLAGS, command);
+        positionals.push(arg);
         break;
     }
   }
@@ -107,14 +150,24 @@ export async function reportsCommand(args: string[]): Promise<string> {
   }
   const rest = args.slice(1);
   if (rest.includes("--help")) return REPORTS_HELP;
-  const flags = parseReportsFlags(rest);
+  const positionals: string[] = [];
+  const flags = parseReportsFlags(rest, `reports ${report}`, positionals);
+
+  // Only `expenses` takes a further positional (its axis); a stray one
+  // anywhere else is a dropped argument, so reject it rather than ignore it.
+  if (report !== "expenses" && positionals.length > 0) {
+    rejectUnknownPositional(
+      positionals[0],
+      `reports ${report}`,
+      `\`reports ${report}\` takes flags only — run \`harvest-axi reports --help\` for usage`,
+    );
+  }
 
   if (report === "uninvoiced") return uninvoicedReport(flags);
   if (report === "budget") return budgetReport(flags);
   if (report === "expenses") {
     // expenses takes a second positional axis: reports expenses <axis>.
-    const axis = rest.find((a) => !a.startsWith("--"));
-    return expenseReport(axis, flags);
+    return expenseReport(positionals[0], flags);
   }
 
   const axis = report as Axis;
@@ -146,7 +199,9 @@ export async function reportsCommand(args: string[]): Promise<string> {
     report: axis,
     total_hours: round2(totalHours),
     billable_hours: round2(billableHours),
-    billable_amount: mixed ? "(mixed currencies — not summed)" : `${round2(amount)}${currency ? ` ${currency}` : ""}`,
+    billable_amount: mixed
+      ? "(mixed currencies — not summed)"
+      : `${round2(amount)}${currency ? ` ${currency}` : ""}`,
     rows: rows.length,
     complete: res.complete,
   };
@@ -170,7 +225,9 @@ export async function reportsCommand(args: string[]): Promise<string> {
   );
 
   const sorted = [...rows].sort(
-    (a, b) => (typeof b.total_hours === "number" ? b.total_hours : 0) - (typeof a.total_hours === "number" ? a.total_hours : 0),
+    (a, b) =>
+      (typeof b.total_hours === "number" ? b.total_hours : 0) -
+      (typeof a.total_hours === "number" ? a.total_hours : 0),
   );
 
   const otherAxis = axis === "tasks" ? "projects" : "tasks";
@@ -220,7 +277,9 @@ async function uninvoicedReport(flags: ReportsFlags): Promise<string> {
   const header: Record<string, unknown> = {
     range: range.label,
     report: "uninvoiced",
-    uninvoiced_amount: mixed ? "(mixed currencies — not summed)" : `${round2(amount)}${currency ? ` ${currency}` : ""}`,
+    uninvoiced_amount: mixed
+      ? "(mixed currencies — not summed)"
+      : `${round2(amount)}${currency ? ` ${currency}` : ""}`,
     uninvoiced_hours: round2(uninvoicedHours),
     rows: rows.length,
     complete: res.complete,
@@ -268,10 +327,14 @@ const EXPENSE_ID: Record<ExpenseAxis, { col: string; field: string }> = {
 
 async function expenseReport(axisArg: string | undefined, flags: ReportsFlags): Promise<string> {
   if (!axisArg || !(EXPENSE_AXES as readonly string[]).includes(axisArg)) {
-    throw new AxiError(`reports expenses needs an axis${axisArg ? ` (got "${axisArg}")` : ""}`, "VALIDATION_ERROR", [
-      `Valid axes: ${EXPENSE_AXES.join(", ")}`,
-      "e.g. `harvest-axi reports expenses projects --last-month`",
-    ]);
+    throw new AxiError(
+      `reports expenses needs an axis${axisArg ? ` (got "${axisArg}")` : ""}`,
+      "VALIDATION_ERROR",
+      [
+        `Valid axes: ${EXPENSE_AXES.join(", ")}`,
+        "e.g. `harvest-axi reports expenses projects --last-month`",
+      ],
+    );
   }
   const axis = axisArg as ExpenseAxis;
   const range = parseRange(flags.range, { defaultNamed: "this-month" });
@@ -297,7 +360,9 @@ async function expenseReport(axisArg: string | undefined, flags: ReportsFlags): 
   const header: Record<string, unknown> = {
     range: range.label,
     report: `expenses ${axis}`,
-    total_amount: mixed ? "(mixed currencies — not summed)" : `${round2(total)}${currency ? ` ${currency}` : ""}`,
+    total_amount: mixed
+      ? "(mixed currencies — not summed)"
+      : `${round2(total)}${currency ? ` ${currency}` : ""}`,
     billable_amount: mixed ? "(mixed currencies — not summed)" : round2(billable),
     rows: rows.length,
     complete: res.complete,
@@ -308,7 +373,9 @@ async function expenseReport(axisArg: string | undefined, flags: ReportsFlags): 
     return joinBlocks(
       renderObject(header),
       renderObject({ expenses: `0 expenses recorded in ${range.label}` }),
-      renderHelp(["Broaden the window, or this account may simply have no tracked expenses in range"]),
+      renderHelp([
+        "Broaden the window, or this account may simply have no tracked expenses in range",
+      ]),
     );
   }
 
@@ -321,13 +388,15 @@ async function expenseReport(axisArg: string | undefined, flags: ReportsFlags): 
   );
 
   const sorted = [...rows].sort(
-    (a, b) => (typeof b.total_amount === "number" ? b.total_amount : 0) - (typeof a.total_amount === "number" ? a.total_amount : 0),
+    (a, b) =>
+      (typeof b.total_amount === "number" ? b.total_amount : 0) -
+      (typeof a.total_amount === "number" ? a.total_amount : 0),
   );
 
   return joinBlocks(
     renderObject(header),
     renderList(`expenses_${axis}`, sorted, schema),
-    renderHelp(['Run `harvest-axi reports projects` for tracked-time totals over the same window']),
+    renderHelp(["Run `harvest-axi reports projects` for tracked-time totals over the same window"]),
   );
 }
 
@@ -335,16 +404,21 @@ async function budgetReport(flags: ReportsFlags): Promise<string> {
   // Budget is a point-in-time snapshot — it takes NO window. A passed date flag
   // would be silently misapplied, so reject it instead.
   if (hasWindow(flags)) {
-    throw new AxiError("`reports budget` is a point-in-time snapshot and takes no window", "VALIDATION_ERROR", [
-      "Drop --from/--to/--since/named-window flags",
-      "Use `--all` to include inactive projects",
-    ]);
+    throw new AxiError(
+      "`reports budget` is a point-in-time snapshot and takes no window",
+      "VALIDATION_ERROR",
+      ["Drop --from/--to/--since/named-window flags", "Use `--all` to include inactive projects"],
+    );
   }
 
   const query: Record<string, QueryValue> = {};
   if (!flags.all) query.is_active = "true";
 
-  const res = await paginateAll<Record<string, unknown>>("reports/project_budget", "results", query);
+  const res = await paginateAll<Record<string, unknown>>(
+    "reports/project_budget",
+    "results",
+    query,
+  );
   const rows = res.items;
 
   const header: Record<string, unknown> = {

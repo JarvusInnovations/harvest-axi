@@ -3,7 +3,14 @@ import { reportsCommand } from "../../src/commands/reports.js";
 
 function resultsPage(items: unknown[]): Response {
   return new Response(
-    JSON.stringify({ results: items, page: 1, per_page: 2000, total_pages: 1, total_entries: items.length, links: { next: null } }),
+    JSON.stringify({
+      results: items,
+      page: 1,
+      per_page: 2000,
+      total_pages: 1,
+      total_entries: items.length,
+      links: { next: null },
+    }),
     { status: 200 },
   );
 }
@@ -21,8 +28,24 @@ describe("reports", () => {
   it("aggregates a projects report with totals and billable amount", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       resultsPage([
-        { project_id: 1, project_name: "Alpha", client_name: "AcmeCo", total_hours: 10, billable_hours: 8, billable_amount: 1200, currency: "USD" },
-        { project_id: 2, project_name: "Beta", client_name: "BetaCo", total_hours: 5, billable_hours: 5, billable_amount: 750, currency: "USD" },
+        {
+          project_id: 1,
+          project_name: "Alpha",
+          client_name: "AcmeCo",
+          total_hours: 10,
+          billable_hours: 8,
+          billable_amount: 1200,
+          currency: "USD",
+        },
+        {
+          project_id: 2,
+          project_name: "Beta",
+          client_name: "BetaCo",
+          total_hours: 5,
+          billable_hours: 5,
+          billable_amount: 750,
+          currency: "USD",
+        },
       ]),
     );
     const out = await reportsCommand(["projects", "--this-month"]);
@@ -51,8 +74,22 @@ describe("reports", () => {
   it("discloses mixed currencies instead of summing them", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       resultsPage([
-        { client_id: 1, client_name: "US Co", total_hours: 4, billable_hours: 4, billable_amount: 400, currency: "USD" },
-        { client_id: 2, client_name: "EU Co", total_hours: 2, billable_hours: 2, billable_amount: 300, currency: "EUR" },
+        {
+          client_id: 1,
+          client_name: "US Co",
+          total_hours: 4,
+          billable_hours: 4,
+          billable_amount: 400,
+          currency: "USD",
+        },
+        {
+          client_id: 2,
+          client_name: "EU Co",
+          total_hours: 2,
+          billable_hours: 2,
+          billable_amount: 300,
+          currency: "EUR",
+        },
       ]),
     );
     const out = await reportsCommand(["clients", "--this-month"]);
@@ -69,15 +106,35 @@ describe("reports", () => {
 describe("reports uninvoiced", () => {
   it("requires an explicit window before any call", async () => {
     const spy = vi.spyOn(globalThis, "fetch");
-    await expect(reportsCommand(["uninvoiced"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(reportsCommand(["uninvoiced"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
     expect(spy).not.toHaveBeenCalled();
   });
 
   it("aggregates uninvoiced hours/expenses/amount per project, sorted by amount", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       resultsPage([
-        { project_id: 1, project_name: "Small", client_name: "AcmeCo", total_hours: 2, uninvoiced_hours: 2, uninvoiced_expenses: 0, uninvoiced_amount: 200, currency: "USD" },
-        { project_id: 2, project_name: "Big", client_name: "BetaCo", total_hours: 10, uninvoiced_hours: 10, uninvoiced_expenses: 50, uninvoiced_amount: 1500, currency: "USD" },
+        {
+          project_id: 1,
+          project_name: "Small",
+          client_name: "AcmeCo",
+          total_hours: 2,
+          uninvoiced_hours: 2,
+          uninvoiced_expenses: 0,
+          uninvoiced_amount: 200,
+          currency: "USD",
+        },
+        {
+          project_id: 2,
+          project_name: "Big",
+          client_name: "BetaCo",
+          total_hours: 10,
+          uninvoiced_hours: 10,
+          uninvoiced_expenses: 50,
+          uninvoiced_amount: 1500,
+          currency: "USD",
+        },
       ]),
     );
     const out = await reportsCommand(["uninvoiced", "--from", "2026-05-01", "--to", "2026-05-31"]);
@@ -102,8 +159,22 @@ describe("reports expenses", () => {
   it("aggregates an expenses axis with the right identity column and totals", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       resultsPage([
-        { project_id: 1, project_name: "Alpha", client_name: "AcmeCo", total_amount: 100, billable_amount: 80, currency: "USD" },
-        { project_id: 2, project_name: "Beta", client_name: "BetaCo", total_amount: 250, billable_amount: 250, currency: "USD" },
+        {
+          project_id: 1,
+          project_name: "Alpha",
+          client_name: "AcmeCo",
+          total_amount: 100,
+          billable_amount: 80,
+          currency: "USD",
+        },
+        {
+          project_id: 2,
+          project_name: "Beta",
+          client_name: "BetaCo",
+          total_amount: 250,
+          billable_amount: 250,
+          currency: "USD",
+        },
       ]),
     );
     const out = await reportsCommand(["expenses", "projects", "--this-month"]);
@@ -117,7 +188,15 @@ describe("reports expenses", () => {
 
   it("uses the category identity column for the categories axis", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      resultsPage([{ expense_category_id: 7, expense_category_name: "Travel", total_amount: 40, billable_amount: 40, currency: "USD" }]),
+      resultsPage([
+        {
+          expense_category_id: 7,
+          expense_category_name: "Travel",
+          total_amount: 40,
+          billable_amount: 40,
+          currency: "USD",
+        },
+      ]),
     );
     const out = await reportsCommand(["expenses", "categories", "--this-month"]);
     expect(out).toContain("expenses_categories[1]{category,total,billable}:");
@@ -125,7 +204,9 @@ describe("reports expenses", () => {
   });
 
   it("rejects an unknown expenses axis", async () => {
-    await expect(reportsCommand(["expenses", "widgets"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(reportsCommand(["expenses", "widgets"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
   });
 
   it("errors when expenses is given no axis", async () => {
@@ -143,8 +224,26 @@ describe("reports budget", () => {
   it("snapshots projects sorted by remaining ascending, showing budget_by", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       resultsPage([
-        { project_id: 1, project_name: "Healthy", client_name: "AcmeCo", budget_by: "project", budget: 100, budget_spent: 20, budget_remaining: 80, is_active: true },
-        { project_id: 2, project_name: "OverBudget", client_name: "BetaCo", budget_by: "project_cost", budget: 100, budget_spent: 150, budget_remaining: -50, is_active: true },
+        {
+          project_id: 1,
+          project_name: "Healthy",
+          client_name: "AcmeCo",
+          budget_by: "project",
+          budget: 100,
+          budget_spent: 20,
+          budget_remaining: 80,
+          is_active: true,
+        },
+        {
+          project_id: 2,
+          project_name: "OverBudget",
+          client_name: "BetaCo",
+          budget_by: "project_cost",
+          budget: 100,
+          budget_spent: 150,
+          budget_remaining: -50,
+          is_active: true,
+        },
       ]),
     );
     const out = await reportsCommand(["budget"]);
@@ -165,7 +264,9 @@ describe("reports budget", () => {
 
   it("rejects a date window (it's a snapshot) before any call", async () => {
     const spy = vi.spyOn(globalThis, "fetch");
-    await expect(reportsCommand(["budget", "--last-month"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(reportsCommand(["budget", "--last-month"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
     expect(spy).not.toHaveBeenCalled();
   });
 });

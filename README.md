@@ -17,11 +17,11 @@ Mint a Personal Access Token at <https://id.getharvest.com/developers>. The acco
 ## Commands
 
 | Command | What |
-|---|---|
+| --- | --- |
 | `harvest-axi` | Home view: identity + today's hours/running timer + suggestions |
 | `harvest-axi review [scope] [window] --by <axis>` | Period rollups — the headline |
 | `harvest-axi browse clients\|projects\|tasks\|mine` | Reference data + what you can log against |
-| `harvest-axi entries today\|get\|log\|edit\|delete\|start\|stop` | Read + edit your time entries |
+| `harvest-axi entries list\|today\|get\|log\|edit\|delete\|start\|stop` | Read + edit time entries (`list` is the batch read) |
 | `harvest-axi invoices [get\|create\|edit\|delete]` | Review invoices + a draft workbench (Admin/Manager) |
 | `harvest-axi estimates [get\|create\|edit\|delete]` | Review estimates + a draft workbench (Admin/Manager) |
 | `harvest-axi auth\|doctor` | Credentials + health |
@@ -33,6 +33,40 @@ harvest-axi review --client "Acme" --last-month --by project
 harvest-axi entries log --project "GTFS Pathways" --task "T2: Project Management" --hours 1.5
 harvest-axi invoices create --client "Acme" --line "Service|17000|1|Milestone 3|PA-PERMIT" --payment-options ach
 ```
+
+### Handing data to a script (`--json-out` / `--csv-out`)
+
+stdout is for the **agent**: TOON, capped, and it never changes shape because a
+machine also wanted the data. When a *script* needs the full payload — turning
+tracked time into invoice line items, or summing prior invoices for
+cumulative-invoiced math — pass an export flag and it goes to a **file**,
+additively:
+
+```sh
+harvest-axi entries list --project "GTFS Pathways" --last-month --json-out
+# …the normal TOON view, unchanged, then:
+# wrote: /tmp/harvest-axi/2026-08-05T19-31-54Z-entries.json (57 rows)
+# columns: id, spent_date, user, project, task, client, hours, rounded_hours, …
+# help[1]: Run `jq '[.entries[] | select(.billable)] | map(.rounded_hours) | add' <path>`
+```
+
+- **`--json-out[=path]`** and **`--csv-out[=path]`** — bare writes an
+  owner-only (`0600`) file under the OS temp dir; `=path` persists it wherever
+  you point. One export flag per invocation. The `=` form is required for an
+  explicit path, so it can't swallow a positional.
+- **The file ignores `--limit`.** stdout stays capped; the export always carries
+  every matched record.
+- **Available only where a script actually needs it** — `entries list`,
+  `entries today|yesterday|get`, and `invoices`. `review`, `reports`, and
+  `budget` are agent-read (a model lifts the number straight out of the TOON),
+  so they reject the flags and point you at `entries list`.
+- Entry payloads carry **both** `hours` and `rounded_hours`, so a billing script
+  mirrors how Harvest bills without re-deriving the account's rounding rule.
+- There is no `--json`-to-stdout mode, by design — see
+  [`specs/behaviors/machine-output.md`](specs/behaviors/machine-output.md).
+
+Exports can contain `billable_rate` / `cost_rate` and client names. Auto-generated
+files are `0600`; an explicit `=path` is written with your umask.
 
 ### Invoices — a draft workbench
 

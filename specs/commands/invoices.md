@@ -14,6 +14,7 @@ Filters:
 - `--client <id|name>` · `--project <id|name>` (names resolve via the [browse](browse.md) cache)
 - `--from <date> --to <date>` · `--since <dur>` (maps to `updated_since`) · named windows (`--this-month`, `--last-month`, …) — filter on `issue_date` per [date-ranges](../behaviors/date-ranges.md)
 - `--limit <n>` — cap on the raw row list (default 200); the cap is announced loudly, never silent
+- `--json-out[=path]` · `--csv-out[=path]` — full invoice records to a file, additively, for cumulative invoiced-to-date and remaining-budget math. Per [machine-output](../behaviors/machine-output.md): stdout is unchanged, and the file ignores `--limit`
 
 Header: `{ range, scope, total, draft, open, paid, closed, amount, due, currency, complete }` — counts per state and summed `$ amount` / `$ due` (currency noted; `(mixed currencies — not summed)` when >1 distinct). `complete` reflects pagination only.
 
@@ -34,7 +35,11 @@ A self-contained detail view (no truncation, no row cap) rendered as stacked blo
 - `payments[N]{paid_date,amount,recorded_by,notes}` — folded in from the payments sub-resource
 - `messages[N]{sent_at,event_type,recipients,subject}` — the send/transition history
 
-`--raw` dumps the untranslated invoice JSON for any field not mapped above.
+There is no `--raw`. It claimed to dump untranslated JSON but rendered TOON through the
+normal object renderer, so nothing could parse it; it is removed with a migration hint
+pointing at `--json-out` per [flag-validation](../behaviors/flag-validation.md). The
+blocks above are the detail view; a machine that wants the untranslated record uses
+`invoices --json-out` and filters by id.
 
 ## Writes — draft workbench only
 
@@ -80,3 +85,4 @@ Same draft guard. Idempotent: an already-absent id is a no-op exit 0. A non-draf
 - [Rollups over raw; detail on demand](../principles.md#rollups-over-raw-detail-on-demand) — list leads with state counts + `$` totals; `get` is the on-demand full record.
 - [Idempotent, non-interactive mutations](../principles.md#idempotent-non-interactive-mutations) — delete no-op, flags-only, the draft guard as a refusal rather than a prompt.
 - [Translate errors; never leak raw API noise](../principles.md#translate-errors-never-leak-raw-api-noise) — `403` (manager required) and `422` (line-item/validation) become actionable AXI errors.
+- [Preview to stdout, full data to a file](../principles.md#preview-to-stdout-full-data-to-a-file) — `invoices` (list) is the second surface that earned machine output: summing prior invoices for cumulative invoiced-to-date is deterministic multi-row arithmetic a script should do, not a model.

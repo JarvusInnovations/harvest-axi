@@ -17,13 +17,23 @@ export async function setupCommand(args: string[]): Promise<string> {
   }
 
   const errors: string[] = [];
-  installSessionStartHooks({ marker: "harvest-axi", timeoutSeconds: 10, onError: (m) => errors.push(m) });
+  installSessionStartHooks({
+    marker: "harvest-axi",
+    timeoutSeconds: 10,
+    onError: (m) => errors.push(m),
+  });
   if (errors.length > 0) {
     throw new AxiError("Hook installation reported problems", "HOOK_INSTALL_FAILED", errors);
   }
 
   return joinBlocks(
-    renderObject({ hooks: { status: "installed", integrations: "Claude Code, Codex, OpenCode", marker: "harvest-axi" } }),
+    renderObject({
+      hooks: {
+        status: "installed",
+        integrations: "Claude Code, Codex, OpenCode",
+        marker: "harvest-axi",
+      },
+    }),
     renderHelp(["Restart your agent session to receive harvest-axi ambient context"]),
   );
 }

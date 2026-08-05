@@ -1,5 +1,12 @@
 import { AxiError } from "axi-sdk-js";
+import {
+  normalizeArgs,
+  rejectInertExportFlag,
+  rejectUnknownFlag,
+  rejectUnknownPositional,
+} from "../cli/args.js";
 import { readConfig } from "../config.js";
+import { buildExport, parseExportRequest, type ExportRequest } from "../output/export.js";
 import { harvestRequest } from "../harvest/client.js";
 import { paginateAll } from "../harvest/paginate.js";
 import { resolveEntity } from "../harvest/resolve.js";
@@ -20,8 +27,6 @@ list filters:
   --since <dur>            7d | 2w | 1m  (maps to updated_since)
   --this-month --last-month --this-week --last-week --today --yesterday
   --limit <n>              cap raw rows (default 200)
-get flags:
-  --raw                    dump untranslated invoice JSON
 writes — DRAFT WORKBENCH (create yields a draft; edit/delete act on drafts only):
   create                   new draft (free-form lines or --from-tracked)
   edit <id>                change a DRAFT's fields / line items
@@ -66,19 +71,52 @@ interface ListFlags {
   limit: number;
 }
 
-function parseListFlags(args: string[]): ListFlags {
+const LIST_FLAGS = [
+  "--from",
+  "--to",
+  "--since",
+  "--client",
+  "--project",
+  "--drafts",
+  "--limit",
+  "--state",
+  ...NAMED_WINDOWS.map((w) => `--${w}`),
+] as const;
+
+function parseListFlags(rawArgs: string[], positionals: string[] = []): ListFlags {
   const flags: ListFlags = { range: {}, limit: 200 };
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
     switch (arg) {
-      case "--from": flags.range.from = next; i++; break;
-      case "--to": flags.range.to = next; i++; break;
-      case "--since": flags.range.since = next; i++; break;
-      case "--client": flags.client = next; i++; break;
-      case "--project": flags.project = next; i++; break;
-      case "--drafts": flags.state = "draft"; break;
-      case "--limit": flags.limit = Math.max(1, parseInt(next, 10) || 200); i++; break;
+      case "--from":
+        flags.range.from = next;
+        i++;
+        break;
+      case "--to":
+        flags.range.to = next;
+        i++;
+        break;
+      case "--since":
+        flags.range.since = next;
+        i++;
+        break;
+      case "--client":
+        flags.client = next;
+        i++;
+        break;
+      case "--project":
+        flags.project = next;
+        i++;
+        break;
+      case "--drafts":
+        flags.state = "draft";
+        break;
+      case "--limit":
+        flags.limit = Math.max(1, parseInt(next, 10) || 200);
+        i++;
+        break;
       case "--state": {
         if (!STATES.includes(next as State)) {
           throw new AxiError(`Unknown --state "${next}"`, "VALIDATION_ERROR", [
@@ -92,7 +130,10 @@ function parseListFlags(args: string[]): ListFlags {
       default:
         if (arg.startsWith("--") && (NAMED_WINDOWS as readonly string[]).includes(arg.slice(2))) {
           flags.range.named = arg.slice(2);
+          break;
         }
+        if (arg.startsWith("--")) rejectUnknownFlag(arg, LIST_FLAGS, "invoices");
+        positionals.push(arg);
         break;
     }
   }
@@ -109,10 +150,18 @@ function money2(n: number): number {
 }
 
 const nestedName = (entry: Record<string, unknown>, key: string): string =>
-  ((entry[key] as { name?: string } | undefined)?.name ?? "—");
+  (entry[key] as { name?: string } | undefined)?.name ?? "—";
 
-export async function invoicesCommand(args: string[]): Promise<string> {
-  if (args.includes("--help")) return INVOICES_HELP;
+export async function invoicesCommand(rawArgs: string[]): Promise<string> {
+  if (rawArgs.includes("--help")) return INVOICES_HELP;
+
+  // Only the list read earned machine output; the writes and the detail view
+  // reject the flags rather than accepting them inertly.
+  const sub = rawArgs[0];
+  const isList = !["get", "create", "edit", "delete"].includes(sub);
+  const { rest: args, request } = isList
+    ? parseExportRequest(rawArgs)
+    : { rest: rawArgs, request: undefined };
 
   switch (args[0]) {
     case "get":
@@ -124,7 +173,7 @@ export async function invoicesCommand(args: string[]): Promise<string> {
     case "delete":
       return invoiceDelete(requireInvoiceId(args[1], "delete"));
     default:
-      return invoiceList(args);
+      return invoiceList(args, request);
   }
 }
 
@@ -137,8 +186,62 @@ function requireInvoiceId(value: string | undefined, sub: string): string {
   return value;
 }
 
-async function invoiceList(args: string[]): Promise<string> {
-  const flags = parseListFlags(args);
+/**
+ * The machine payload for one invoice — the fields a script needs to filter to
+ * a project and sum for cumulative-invoiced / remaining-budget math.
+ */
+function invoicePayload(i: Record<string, unknown>): Record<string, unknown> {
+  const entity = (v: unknown) => {
+    if (!v || typeof v !== "object") return null;
+    const e = v as { id?: unknown; name?: unknown };
+    return { id: e.id ?? null, name: e.name ?? null };
+  };
+  return {
+    id: i.id,
+    number: i.number ?? null,
+    amount: i.amount ?? null,
+    due_amount: i.due_amount ?? null,
+    currency: i.currency ?? null,
+    issue_date: i.issue_date ?? null,
+    due_date: i.due_date ?? null,
+    state: i.state ?? null,
+    sent_at: i.sent_at ?? null,
+    paid_at: i.paid_at ?? null,
+    paid_date: i.paid_date ?? null,
+    paid_amount: i.paid_amount ?? null,
+    client: entity(i.client),
+    project: entity(i.project),
+  };
+}
+
+/** Append the export description. Purely additive — the TOON above is untouched. */
+function withExport(
+  rendered: string,
+  request: ExportRequest | undefined,
+  invoices: Record<string, unknown>[],
+): string {
+  if (!request) return rendered;
+  const outcome = buildExport(request, "invoices", invoices.map(invoicePayload));
+  return joinBlocks(
+    rendered,
+    renderObject({ wrote: outcome.wrote, columns: outcome.columns }),
+    renderHelp([outcome.helpLine]),
+  );
+}
+
+async function invoiceList(rawArgs: string[], request?: ExportRequest): Promise<string> {
+  const positionals: string[] = [];
+  const args = rawArgs;
+  const flags = parseListFlags(args, positionals);
+  // A stray positional here is almost always a mistyped subcommand
+  // (`invoices detail 123`), which would otherwise silently list everything.
+  if (positionals.length > 0) {
+    rejectUnknownPositional(
+      positionals[0],
+      "invoices",
+      "Valid subcommands: get, create, edit, delete — or run `harvest-axi invoices` with flags only to list",
+    );
+  }
   // issue_date window; --since maps to updated_since. No window flag → no date filter.
   const range =
     flags.range.from || flags.range.to || flags.range.named || flags.range.since
@@ -210,16 +313,20 @@ async function invoiceList(args: string[]): Promise<string> {
   if (!result.complete) header.capped_at_pages = result.pages_fetched;
 
   if (invoices.length === 0) {
-    return joinBlocks(
-      renderObject(header),
-      renderObject({
-        invoices: `0 invoices found${scopeParts.length ? ` for ${scopeParts.join(" · ")}` : ""}${range ? ` in ${range.label}` : ""}`,
-      }),
-      renderHelp([
-        flags.state || flags.client || flags.project
-          ? "Drop the --state/--client/--project filters to widen the search"
-          : "Broaden with a --from/--to or --last-month window",
-      ]),
+    return withExport(
+      joinBlocks(
+        renderObject(header),
+        renderObject({
+          invoices: `0 invoices found${scopeParts.length ? ` for ${scopeParts.join(" · ")}` : ""}${range ? ` in ${range.label}` : ""}`,
+        }),
+        renderHelp([
+          flags.state || flags.client || flags.project
+            ? "Drop the --state/--client/--project filters to widen the search"
+            : "Broaden with a --from/--to or --last-month window",
+        ]),
+      ),
+      request,
+      invoices,
     );
   }
 
@@ -230,38 +337,61 @@ async function invoiceList(args: string[]): Promise<string> {
   const capped = sorted.length > flags.limit;
   const shown = capped ? sorted.slice(0, flags.limit) : sorted;
 
-  const suggestions: string[] = ["Run `harvest-axi invoices get <id>` for one invoice's full detail"];
+  const suggestions: string[] = [
+    "Run `harvest-axi invoices get <id>` for one invoice's full detail",
+  ];
   if (capped) {
     suggestions.unshift(
       `Showing ${flags.limit} of ${sorted.length} matched invoices — raise --limit or narrow the filters`,
     );
   }
-  if (!flags.state) suggestions.push("Run `harvest-axi invoices --drafts` to review draft invoices");
+  if (!flags.state)
+    suggestions.push("Run `harvest-axi invoices --drafts` to review draft invoices");
 
-  return joinBlocks(
-    renderObject(header),
-    renderList("invoices", shown, [
-      { name: "id", extract: (i) => i.id },
-      { name: "number", extract: (i) => i.number ?? "—" },
-      { name: "client", extract: (i) => nestedName(i, "client") },
-      { name: "state", extract: (i) => i.state },
-      { name: "amount", extract: (i) => money2(num(i.amount)) },
-      { name: "due", extract: (i) => money2(num(i.due_amount)) },
-      { name: "issue_date", extract: (i) => i.issue_date ?? "—" },
-      { name: "due_date", extract: (i) => i.due_date ?? "—" },
-    ]),
-    renderHelp(suggestions),
+  // The export carries every matched invoice — `shown` is a display cap only.
+  return withExport(
+    joinBlocks(
+      renderObject(header),
+      renderList("invoices", shown, [
+        { name: "id", extract: (i) => i.id },
+        { name: "number", extract: (i) => i.number ?? "—" },
+        { name: "client", extract: (i) => nestedName(i, "client") },
+        { name: "state", extract: (i) => i.state },
+        { name: "amount", extract: (i) => money2(num(i.amount)) },
+        { name: "due", extract: (i) => money2(num(i.due_amount)) },
+        { name: "issue_date", extract: (i) => i.issue_date ?? "—" },
+        { name: "due_date", extract: (i) => i.due_date ?? "—" },
+      ]),
+      renderHelp(suggestions),
+    ),
+    request,
+    sorted,
   );
 }
 
 async function invoiceDetail(id: string, rest: string[]): Promise<string> {
-  const raw = rest.includes("--raw");
+  // `invoices get` takes no flags of its own. `--raw` used to live here and
+  // claimed to dump untranslated JSON, but rendered TOON — see the removed-flag
+  // hint in cli/args.ts.
+  for (const arg of normalizeArgs(rest)) {
+    if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "invoices get");
+    if (arg.startsWith("--")) rejectUnknownFlag(arg, [], "invoices get");
+    rejectUnknownPositional(
+      arg,
+      "invoices get",
+      "`invoices get <id>` takes an id and no further arguments",
+    );
+  }
   const invoice = await harvestRequest<Record<string, unknown>>(`invoices/${id}`);
 
-  if (raw) return renderObject({ invoice });
-
-  const payments = await paginateAll<Record<string, unknown>>(`invoices/${id}/payments`, "invoice_payments");
-  const messages = await paginateAll<Record<string, unknown>>(`invoices/${id}/messages`, "invoice_messages");
+  const payments = await paginateAll<Record<string, unknown>>(
+    `invoices/${id}/payments`,
+    "invoice_payments",
+  );
+  const messages = await paginateAll<Record<string, unknown>>(
+    `invoices/${id}/messages`,
+    "invoice_messages",
+  );
 
   const lineItems = (invoice.line_items as Record<string, unknown>[]) ?? [];
 
@@ -317,13 +447,22 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
     const url = `${baseUri.replace(/\/$/, "")}/client/invoices/${clientKey}`;
     blocks.push(renderObject({ links: { web: url, pdf: `${url}.pdf` } }));
   } else if (clientKey) {
-    blocks.push(renderObject({ links: { client_key: clientKey, note: "run `harvest-axi auth whoami --refresh` to cache the account URL for full links" } }));
+    blocks.push(
+      renderObject({
+        links: {
+          client_key: clientKey,
+          note: "run `harvest-axi auth whoami --refresh` to cache the account URL for full links",
+        },
+      }),
+    );
   }
 
   // References — only the present ones.
   const refs: Record<string, unknown> = {};
-  if (invoice.estimate) refs.estimate = (invoice.estimate as { id?: number }).id ?? invoice.estimate;
-  if (invoice.retainer) refs.retainer = (invoice.retainer as { id?: number }).id ?? invoice.retainer;
+  if (invoice.estimate)
+    refs.estimate = (invoice.estimate as { id?: number }).id ?? invoice.estimate;
+  if (invoice.retainer)
+    refs.retainer = (invoice.retainer as { id?: number }).id ?? invoice.retainer;
   if (invoice.recurring_invoice_id) refs.recurring_invoice_id = invoice.recurring_invoice_id;
   if (Object.keys(refs).length > 0) blocks.push(renderObject({ references: refs }));
 
@@ -359,7 +498,10 @@ async function invoiceDetail(id: string, rest: string[]): Promise<string> {
           name: "recipients",
           extract: (i) =>
             Array.isArray(i.recipients)
-              ? (i.recipients as Array<{ email?: string }>).map((r) => r.email).filter(Boolean).join(", ") || "—"
+              ? (i.recipients as Array<{ email?: string }>)
+                  .map((r) => r.email)
+                  .filter(Boolean)
+                  .join(", ") || "—"
               : "—",
         },
         { name: "subject", extract: (i) => i.subject ?? "—" },
@@ -398,34 +540,139 @@ interface WriteFlags {
   expenseSummary?: string;
 }
 
-function parseWriteFlags(args: string[]): WriteFlags {
-  const f: WriteFlags = { lines: [], updateLines: [], removeLines: [], projects: [], fromTracked: false, expenses: false };
+const INVOICE_WRITE_FLAGS = [
+  "--client",
+  "--subject",
+  "--notes",
+  "--po",
+  "--issue-date",
+  "--due-date",
+  "--payment-term",
+  "--payment-options",
+  "--currency",
+  "--tax",
+  "--tax2",
+  "--discount",
+  "--line",
+  "--update-line",
+  "--remove-line",
+  "--from-tracked",
+  "--project",
+  "--summary",
+  "--from",
+  "--to",
+  "--expenses",
+  "--expense-summary",
+] as const;
+
+function parseWriteFlags(rawArgs: string[], command: string): WriteFlags {
+  const f: WriteFlags = {
+    lines: [],
+    updateLines: [],
+    removeLines: [],
+    projects: [],
+    fromTracked: false,
+    expenses: false,
+  };
+  const args = normalizeArgs(rawArgs);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const n = args[i + 1];
     switch (a) {
-      case "--client": f.client = n; i++; break;
-      case "--subject": f.subject = n; i++; break;
-      case "--notes": f.notes = n; i++; break;
-      case "--po": f.po = n; i++; break;
-      case "--issue-date": f.issueDate = n; i++; break;
-      case "--due-date": f.dueDate = n; i++; break;
-      case "--payment-term": f.paymentTerm = n; i++; break;
-      case "--payment-options": f.paymentOptions = n; i++; break;
-      case "--currency": f.currency = n; i++; break;
-      case "--tax": f.tax = n; i++; break;
-      case "--tax2": f.tax2 = n; i++; break;
-      case "--discount": f.discount = n; i++; break;
-      case "--line": f.lines.push(n); i++; break;
-      case "--update-line": f.updateLines.push(n); i++; break;
-      case "--remove-line": f.removeLines.push(n); i++; break;
-      case "--from-tracked": f.fromTracked = true; break;
-      case "--project": f.projects.push(n); i++; break;
-      case "--summary": f.summary = n; i++; break;
-      case "--from": f.from = n; i++; break;
-      case "--to": f.to = n; i++; break;
-      case "--expenses": f.expenses = true; break;
-      case "--expense-summary": f.expenseSummary = n; i++; break;
+      case "--client":
+        f.client = n;
+        i++;
+        break;
+      case "--subject":
+        f.subject = n;
+        i++;
+        break;
+      case "--notes":
+        f.notes = n;
+        i++;
+        break;
+      case "--po":
+        f.po = n;
+        i++;
+        break;
+      case "--issue-date":
+        f.issueDate = n;
+        i++;
+        break;
+      case "--due-date":
+        f.dueDate = n;
+        i++;
+        break;
+      case "--payment-term":
+        f.paymentTerm = n;
+        i++;
+        break;
+      case "--payment-options":
+        f.paymentOptions = n;
+        i++;
+        break;
+      case "--currency":
+        f.currency = n;
+        i++;
+        break;
+      case "--tax":
+        f.tax = n;
+        i++;
+        break;
+      case "--tax2":
+        f.tax2 = n;
+        i++;
+        break;
+      case "--discount":
+        f.discount = n;
+        i++;
+        break;
+      case "--line":
+        f.lines.push(n);
+        i++;
+        break;
+      case "--update-line":
+        f.updateLines.push(n);
+        i++;
+        break;
+      case "--remove-line":
+        f.removeLines.push(n);
+        i++;
+        break;
+      case "--from-tracked":
+        f.fromTracked = true;
+        break;
+      case "--project":
+        f.projects.push(n);
+        i++;
+        break;
+      case "--summary":
+        f.summary = n;
+        i++;
+        break;
+      case "--from":
+        f.from = n;
+        i++;
+        break;
+      case "--to":
+        f.to = n;
+        i++;
+        break;
+      case "--expenses":
+        f.expenses = true;
+        break;
+      case "--expense-summary":
+        f.expenseSummary = n;
+        i++;
+        break;
+      default:
+        if (a === "--json-out" || a === "--csv-out") rejectInertExportFlag(a, command);
+        if (a.startsWith("--")) rejectUnknownFlag(a, INVOICE_WRITE_FLAGS, command);
+        rejectUnknownPositional(
+          a,
+          command,
+          `\`${command}\` takes flags only — run \`harvest-axi invoices --help\` for usage`,
+        );
     }
   }
   return f;
@@ -439,7 +686,10 @@ const PAYMENT_OPTIONS = ["ach", "credit_card", "paypal"] as const;
  * account surfaces a translated Harvest 422 at write time.
  */
 function parsePaymentOptions(value: string): string[] {
-  const opts = value.split(",").map((s) => s.trim()).filter(Boolean);
+  const opts = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   for (const o of opts) {
     if (!(PAYMENT_OPTIONS as readonly string[]).includes(o)) {
       throw new AxiError(`--payment-options got "${o}"`, "VALIDATION_ERROR", [
@@ -479,16 +729,22 @@ interface ParsedLine {
 function parseLineItem(spec: string): ParsedLine {
   const parts = spec.split("|").map((s) => s.trim());
   if (parts.length > 5) {
-    throw new AxiError(`--line has too many "|" segments (max 5: kind|unit_price|qty|desc|project) — got "${spec}"`, "VALIDATION_ERROR", [
-      "A literal | in the description isn't supported — remove it",
-      'Format: --line "Service|200|10|May consulting|GTFS"',
-    ]);
+    throw new AxiError(
+      `--line has too many "|" segments (max 5: kind|unit_price|qty|desc|project) — got "${spec}"`,
+      "VALIDATION_ERROR",
+      [
+        "A literal | in the description isn't supported — remove it",
+        'Format: --line "Service|200|10|May consulting|GTFS"',
+      ],
+    );
   }
   const [kind, unitPrice, qty, desc, project] = parts;
   if (!kind || !unitPrice) {
-    throw new AxiError(`--line needs at least "kind|unit_price" — got "${spec}"`, "VALIDATION_ERROR", [
-      'Example: --line "Service|200|10|May consulting"',
-    ]);
+    throw new AxiError(
+      `--line needs at least "kind|unit_price" — got "${spec}"`,
+      "VALIDATION_ERROR",
+      ['Example: --line "Service|200|10|May consulting"'],
+    );
   }
   const item: Record<string, unknown> = { kind, unit_price: numFlag("unit_price", unitPrice) };
   if (qty) item.quantity = numFlag("quantity", qty);
@@ -500,16 +756,22 @@ function parseLineItem(spec: string): ParsedLine {
 function parseUpdateLine(spec: string): ParsedLine {
   const parts = spec.split("|").map((s) => s.trim());
   if (parts.length > 6) {
-    throw new AxiError(`--update-line has too many "|" segments (max 6: id|kind|unit_price|qty|desc|project) — got "${spec}"`, "VALIDATION_ERROR", [
-      "A literal | in the description isn't supported — remove it",
-      'Format: --update-line "998877|Service|220||revised rate|GTFS"',
-    ]);
+    throw new AxiError(
+      `--update-line has too many "|" segments (max 6: id|kind|unit_price|qty|desc|project) — got "${spec}"`,
+      "VALIDATION_ERROR",
+      [
+        "A literal | in the description isn't supported — remove it",
+        'Format: --update-line "998877|Service|220||revised rate|GTFS"',
+      ],
+    );
   }
   const [id, kind, unitPrice, qty, desc, project] = parts;
   if (!id || !/^\d+$/.test(id)) {
-    throw new AxiError(`--update-line needs a numeric line id first — got "${spec}"`, "VALIDATION_ERROR", [
-      'Example: --update-line "998877|Service|220||revised rate"',
-    ]);
+    throw new AxiError(
+      `--update-line needs a numeric line id first — got "${spec}"`,
+      "VALIDATION_ERROR",
+      ['Example: --update-line "998877|Service|220||revised rate"'],
+    );
   }
   const item: Record<string, unknown> = { id: Number(id) };
   if (kind) item.kind = kind;
@@ -602,7 +864,7 @@ function createdSummary(status: string, inv: Record<string, unknown>): string {
   });
   if (lineItems.length === 0) return header;
   // Echo the resulting lines with their project link so the linkage is
-  // confirmable without a follow-up `get` (or `--raw`).
+  // confirmable without a follow-up `get`.
   return joinBlocks(
     header,
     renderList("line_items", lineItems, [
@@ -618,7 +880,7 @@ function createdSummary(status: string, inv: Record<string, unknown>): string {
 }
 
 async function invoiceCreate(args: string[]): Promise<string> {
-  const f = parseWriteFlags(args);
+  const f = parseWriteFlags(args, "invoices create");
   if (!f.client) {
     throw new AxiError("`invoices create` requires --client", "VALIDATION_ERROR", [
       "Run `harvest-axi browse clients` to find a client id or name",
@@ -636,11 +898,15 @@ async function invoiceCreate(args: string[]): Promise<string> {
       ]);
     }
     if (f.lines.length > 0) {
-      throw new AxiError("`--from-tracked` and `--line` are mutually exclusive", "VALIDATION_ERROR", [
-        "Use --from-tracked to import time, OR --line for free-form items — not both",
-      ]);
+      throw new AxiError(
+        "`--from-tracked` and `--line` are mutually exclusive",
+        "VALIDATION_ERROR",
+        ["Use --from-tracked to import time, OR --line for free-form items — not both"],
+      );
     }
-    const projectIds = await Promise.all(f.projects.map((p) => resolveEntity("project", p).then((e) => e.id)));
+    const projectIds = await Promise.all(
+      f.projects.map((p) => resolveEntity("project", p).then((e) => e.id)),
+    );
     const importBlock: Record<string, unknown> = { project_ids: projectIds };
     const time: Record<string, unknown> = { summary_type: f.summary ?? "project" };
     if (f.from) time.from = f.from;
@@ -655,15 +921,22 @@ async function invoiceCreate(args: string[]): Promise<string> {
     body.line_items_import = importBlock;
   } else {
     if (f.lines.length === 0) {
-      throw new AxiError("`invoices create` needs --line items or --from-tracked", "VALIDATION_ERROR", [
-        'Free-form: --line "Service|200|10|May work" (repeatable)',
-        "From tracked time: --from-tracked --project <name>",
-      ]);
+      throw new AxiError(
+        "`invoices create` needs --line items or --from-tracked",
+        "VALIDATION_ERROR",
+        [
+          'Free-form: --line "Service|200|10|May work" (repeatable)',
+          "From tracked time: --from-tracked --project <name>",
+        ],
+      );
     }
     body.line_items = await resolveLineProjects(f.lines.map(parseLineItem));
   }
 
-  const created = await harvestRequest<Record<string, unknown>>("invoices", { method: "POST", body });
+  const created = await harvestRequest<Record<string, unknown>>("invoices", {
+    method: "POST",
+    body,
+  });
   return joinBlocks(
     createdSummary("draft created", created),
     renderHelp([
@@ -674,7 +947,7 @@ async function invoiceCreate(args: string[]): Promise<string> {
 }
 
 async function invoiceEdit(id: string, args: string[]): Promise<string> {
-  const f = parseWriteFlags(args);
+  const f = parseWriteFlags(args, "invoices edit");
   // Guard first — no mutation on a non-draft. The guard's GET is also the source
   // for payment_options preservation below (no extra round-trip).
   const current = await requireDraft(id, "edit");
@@ -685,7 +958,11 @@ async function invoiceEdit(id: string, args: string[]): Promise<string> {
   const parsed = [...f.lines.map(parseLineItem), ...f.updateLines.map(parseUpdateLine)];
   const removes = f.removeLines.map((rid) => {
     if (!/^\d+$/.test(rid)) {
-      throw new AxiError(`--remove-line needs a numeric line id, got "${rid}"`, "VALIDATION_ERROR", []);
+      throw new AxiError(
+        `--remove-line needs a numeric line id, got "${rid}"`,
+        "VALIDATION_ERROR",
+        [],
+      );
     }
     return { id: Number(rid), _destroy: true };
   });
@@ -693,9 +970,11 @@ async function invoiceEdit(id: string, args: string[]): Promise<string> {
   if (lineItems.length > 0) body.line_items = lineItems;
 
   if (Object.keys(body).length === 0) {
-    throw new AxiError("`invoices edit` needs at least one field or line change", "VALIDATION_ERROR", [
-      "e.g. --notes, --subject, --due-date, --line, --update-line, --remove-line",
-    ]);
+    throw new AxiError(
+      "`invoices edit` needs at least one field or line change",
+      "VALIDATION_ERROR",
+      ["e.g. --notes, --subject, --due-date, --line, --update-line, --remove-line"],
+    );
   }
 
   // Harvest clears payment_options on any PATCH that omits the field (it is NOT
@@ -711,7 +990,10 @@ async function invoiceEdit(id: string, args: string[]): Promise<string> {
     body.payment_options = current.payment_options;
   }
 
-  const updated = await harvestRequest<Record<string, unknown>>(`invoices/${id}`, { method: "PATCH", body });
+  const updated = await harvestRequest<Record<string, unknown>>(`invoices/${id}`, {
+    method: "PATCH",
+    body,
+  });
   return joinBlocks(
     createdSummary("draft updated", updated),
     renderHelp([`Run \`harvest-axi invoices get ${id}\` to see the full updated draft`]),

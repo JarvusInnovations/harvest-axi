@@ -16,8 +16,10 @@ specs/
 │   ├── invoices.md       # the invoices endpoints (list/get + payments/messages reads; draft-only writes)
 │   └── reference-data.md # clients/projects/tasks/users list+get, project task assignments
 ├── behaviors/           # cross-cutting rules spanning multiple commands
-│   ├── date-ranges.md    # human time in, year-stamped range out
-│   └── period-review.md  # the headline: review entries over a period × scope
+│   ├── date-ranges.md      # human time in, year-stamped range out
+│   ├── period-review.md    # the headline: review entries over a period × scope
+│   ├── machine-output.md   # --json-out/--csv-out side channel; stdout never changes
+│   └── flag-validation.md  # unknown/contradictory flags fail loud, exit 2
 └── commands/            # one file per top-level command surface
     ├── home.md           # no-args ambient view
     ├── auth.md           # PAT setup, doctor, whoami

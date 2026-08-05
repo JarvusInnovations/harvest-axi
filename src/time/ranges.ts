@@ -35,9 +35,7 @@ const ACCEPTED_FORMS = [
 ];
 
 function validationError(msg: string): AxiError {
-  return new AxiError(msg, "VALIDATION_ERROR", [
-    `Accepted forms: ${ACCEPTED_FORMS.join(" | ")}`,
-  ]);
+  return new AxiError(msg, "VALIDATION_ERROR", [`Accepted forms: ${ACCEPTED_FORMS.join(" | ")}`]);
 }
 
 // Local-date helpers — Harvest spent_date is a calendar date, no tz math. ──
@@ -115,12 +113,20 @@ function resolveNamed(named: string, now: Date): ResolvedRange {
     case "this-month": {
       const first = new Date(now.getFullYear(), now.getMonth(), 1);
       const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      return { from: fmt(first), to: fmt(last), label: `${fmt(first)} → ${fmt(last)} (this-month)` };
+      return {
+        from: fmt(first),
+        to: fmt(last),
+        label: `${fmt(first)} → ${fmt(last)} (this-month)`,
+      };
     }
     case "last-month": {
       const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const last = new Date(now.getFullYear(), now.getMonth(), 0);
-      return { from: fmt(first), to: fmt(last), label: `${fmt(first)} → ${fmt(last)} (last-month)` };
+      return {
+        from: fmt(first),
+        to: fmt(last),
+        label: `${fmt(first)} → ${fmt(last)} (last-month)`,
+      };
     }
     default:
       throw validationError(`Unknown named window: ${named}`);

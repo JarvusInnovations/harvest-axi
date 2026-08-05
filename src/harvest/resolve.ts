@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AxiError } from "axi-sdk-js";
 import { cacheDir } from "../config.js";
@@ -94,7 +88,8 @@ export async function resolveEntity(
   const exact = items.filter((i) => i.name.toLowerCase() === lower);
   if (exact.length === 1) return exact[0];
 
-  const matches = exact.length > 0 ? exact : items.filter((i) => i.name.toLowerCase().includes(lower));
+  const matches =
+    exact.length > 0 ? exact : items.filter((i) => i.name.toLowerCase().includes(lower));
   if (matches.length === 1) return matches[0];
 
   const browseHint =

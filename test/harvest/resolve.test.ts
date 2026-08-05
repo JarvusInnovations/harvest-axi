@@ -56,12 +56,16 @@ describe("resolveEntity", () => {
 
   it("rejects an ambiguous name with candidates", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(listPage("clients", CLIENTS));
-    await expect(resolveEntity("client", "acme")).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(resolveEntity("client", "acme")).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
   });
 
   it("rejects a no-match name", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(listPage("clients", CLIENTS));
-    await expect(resolveEntity("client", "zzz")).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(resolveEntity("client", "zzz")).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
   });
 
   it("caches the list — a second resolve does not re-fetch", async () => {

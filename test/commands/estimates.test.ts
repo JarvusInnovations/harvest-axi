@@ -5,9 +5,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { estimatesCommand } from "../../src/commands/estimates.js";
 
 const ESTIMATES = [
-  { id: 1, number: "E-1001", state: "draft", amount: 1000, currency: "USD", issue_date: "2026-05-31", client: { id: 1, name: "Acme" } },
-  { id: 2, number: "E-1000", state: "accepted", amount: 500, currency: "USD", issue_date: "2026-05-01", client: { id: 1, name: "Acme" } },
-  { id: 3, number: "E-999", state: "sent", amount: 250, currency: "USD", issue_date: "2026-04-15", client: { id: 2, name: "Beta" } },
+  {
+    id: 1,
+    number: "E-1001",
+    state: "draft",
+    amount: 1000,
+    currency: "USD",
+    issue_date: "2026-05-31",
+    client: { id: 1, name: "Acme" },
+  },
+  {
+    id: 2,
+    number: "E-1000",
+    state: "accepted",
+    amount: 500,
+    currency: "USD",
+    issue_date: "2026-05-01",
+    client: { id: 1, name: "Acme" },
+  },
+  {
+    id: 3,
+    number: "E-999",
+    state: "sent",
+    amount: 250,
+    currency: "USD",
+    issue_date: "2026-04-15",
+    client: { id: 2, name: "Beta" },
+  },
 ];
 
 function listPage(items: unknown[], key = "estimates"): Response {
@@ -116,12 +140,37 @@ describe("estimates list", () => {
 
 describe("estimates get", () => {
   const ESTIMATE = {
-    id: 1, number: "E-1001", state: "draft", amount: 1000, currency: "USD",
-    subject: "Phase 1", purchase_order: "PO-7", issue_date: "2026-05-31",
-    tax: 5, tax_amount: 50, tax2: null, tax2_amount: null, discount: null, discount_amount: null,
-    sent_at: null, accepted_at: null, declined_at: null,
-    client_key: "abc123", client: { id: 1, name: "Acme" }, creator: { id: 9, name: "Chris" },
-    line_items: [{ id: 11, kind: "Service", description: "Scoping", quantity: 10, unit_price: 100, amount: 1000, taxed: true }],
+    id: 1,
+    number: "E-1001",
+    state: "draft",
+    amount: 1000,
+    currency: "USD",
+    subject: "Phase 1",
+    purchase_order: "PO-7",
+    issue_date: "2026-05-31",
+    tax: 5,
+    tax_amount: 50,
+    tax2: null,
+    tax2_amount: null,
+    discount: null,
+    discount_amount: null,
+    sent_at: null,
+    accepted_at: null,
+    declined_at: null,
+    client_key: "abc123",
+    client: { id: 1, name: "Acme" },
+    creator: { id: 9, name: "Chris" },
+    line_items: [
+      {
+        id: 11,
+        kind: "Service",
+        description: "Scoping",
+        quantity: 10,
+        unit_price: 100,
+        amount: 1000,
+        taxed: true,
+      },
+    ],
   };
 
   function configWithBaseUri(): void {
@@ -129,7 +178,18 @@ describe("estimates get", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "config.json"),
-      JSON.stringify({ version: 1, token: "tok", account_id: "1", profile_cache: { user_id: 9, user_name: "Chris", account_name: "Acme", base_uri: "https://acme.harvestapp.com", cached_at: "x" } }),
+      JSON.stringify({
+        version: 1,
+        token: "tok",
+        account_id: "1",
+        profile_cache: {
+          user_id: 9,
+          user_name: "Chris",
+          account_name: "Acme",
+          base_uri: "https://acme.harvestapp.com",
+          cached_at: "x",
+        },
+      }),
     );
   }
 
@@ -137,13 +197,26 @@ describe("estimates get", () => {
     configWithBaseUri();
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify(ESTIMATE), { status: 200 }))
-      .mockResolvedValueOnce(listPage([{ id: 8, sent_at: "2026-05-31T00:00:00Z", event_type: null, recipients: [{ email: "ap@acme.com" }], subject: "Estimate E-1001" }], "estimate_messages"));
+      .mockResolvedValueOnce(
+        listPage(
+          [
+            {
+              id: 8,
+              sent_at: "2026-05-31T00:00:00Z",
+              event_type: null,
+              recipients: [{ email: "ap@acme.com" }],
+              subject: "Estimate E-1001",
+            },
+          ],
+          "estimate_messages",
+        ),
+      );
     const out = await estimatesCommand(["get", "1"]);
     expect(out).toContain("subject: Phase 1");
     expect(out).toContain("tax_amount: 50");
     expect(out).toContain("accepted_at: —");
-    expect(out).toContain("web: \"https://acme.harvestapp.com/client/estimates/abc123\"");
-    expect(out).toContain("pdf: \"https://acme.harvestapp.com/client/estimates/abc123.pdf\"");
+    expect(out).toContain('web: "https://acme.harvestapp.com/client/estimates/abc123"');
+    expect(out).toContain('pdf: "https://acme.harvestapp.com/client/estimates/abc123.pdf"');
     // No project column on estimate line items.
     expect(out).toContain("line_items[1]{kind,description,quantity,unit_price,amount,taxed}:");
     expect(out).toContain("messages[1]{sent_at,event_type,recipients,subject}:");
@@ -169,13 +242,10 @@ describe("estimates get", () => {
     expect(out).toContain("whoami --refresh");
   });
 
-  it("--raw dumps the untranslated estimate without a messages call", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify(ESTIMATE), { status: 200 }),
-    );
-    const out = await estimatesCommand(["get", "1", "--raw"]);
-    expect(out).toContain("client_key: abc123");
-    expect(spy).toHaveBeenCalledTimes(1); // no messages fetch under --raw
+  it("--raw is removed, with a migration hint and no fetch", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(estimatesCommand(["get", "1", "--raw"])).rejects.toThrow(/--json-out\[=path\]/);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("requires an id", async () => {
@@ -194,13 +264,33 @@ describe("estimates create", () => {
     const spy = vi.spyOn(globalThis, "fetch");
     spy
       .mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients")) // resolve client
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 99, number: "1", state: "draft", amount: 2000, client: { id: 1, name: "Acme" }, line_items: [{}] }), { status: 201 }));
-    const out = await estimatesCommand(["create", "--client", "Acme", "--line", "Service|200|10|Phase 1 scope"]);
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 99,
+            number: "1",
+            state: "draft",
+            amount: 2000,
+            client: { id: 1, name: "Acme" },
+            line_items: [{}],
+          }),
+          { status: 201 },
+        ),
+      );
+    const out = await estimatesCommand([
+      "create",
+      "--client",
+      "Acme",
+      "--line",
+      "Service|200|10|Phase 1 scope",
+    ]);
     expect(out).toContain("draft created");
     const postCall = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST");
-    const body = JSON.parse((postCall?.[1] as RequestInit).body as string);
+    const body = JSON.parse((postCall![1] as RequestInit).body as string);
     expect(body.client_id).toBe(1);
-    expect(body.line_items).toEqual([{ kind: "Service", unit_price: 200, quantity: 10, description: "Phase 1 scope" }]);
+    expect(body.line_items).toEqual([
+      { kind: "Service", unit_price: 200, quantity: 10, description: "Phase 1 scope" },
+    ]);
     expect(String(postCall?.[0])).toContain("/estimates");
   });
 
@@ -212,7 +302,9 @@ describe("estimates create", () => {
   });
 
   it("rejects a --line with a trailing project segment (over-segmented)", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(listPage([{ id: 1, name: "Acme" }], "clients"));
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      listPage([{ id: 1, name: "Acme" }], "clients"),
+    );
     await expect(
       estimatesCommand(["create", "--client", "Acme", "--line", "Service|200|10|Phase 1|GTFS"]),
     ).rejects.toThrow(/too many .* segments/);
@@ -220,18 +312,43 @@ describe("estimates create", () => {
 });
 
 describe("estimates edit/delete — draft guard", () => {
-  const draft = { id: 5, state: "draft", number: "1", amount: 0, client: { id: 1, name: "Acme" }, line_items: [] };
-  const accepted = { id: 6, state: "accepted", number: "2", amount: 100, client: { id: 1, name: "Acme" }, line_items: [] };
+  const draft = {
+    id: 5,
+    state: "draft",
+    number: "1",
+    amount: 0,
+    client: { id: 1, name: "Acme" },
+    line_items: [],
+  };
+  const accepted = {
+    id: 6,
+    state: "accepted",
+    number: "2",
+    amount: 100,
+    client: { id: 1, name: "Acme" },
+    line_items: [],
+  };
 
   it("edits a draft: guards via GET, then PATCHes with line ops", async () => {
     const spy = vi.spyOn(globalThis, "fetch");
     spy
       .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard GET
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ...draft, line_items: [{}] }), { status: 200 })); // PATCH
-    const out = await estimatesCommand(["edit", "5", "--notes", "hi", "--line", "Service|10|1|x", "--remove-line", "777"]);
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...draft, line_items: [{}] }), { status: 200 }),
+      ); // PATCH
+    const out = await estimatesCommand([
+      "edit",
+      "5",
+      "--notes",
+      "hi",
+      "--line",
+      "Service|10|1|x",
+      "--remove-line",
+      "777",
+    ]);
     expect(out).toContain("draft updated");
     const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
-    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
+    const body = JSON.parse((patch![1] as RequestInit).body as string);
     expect(body.notes).toBe("hi");
     expect(body.line_items).toEqual([
       { kind: "Service", unit_price: 10, quantity: 1, description: "x" },
@@ -245,29 +362,47 @@ describe("estimates edit/delete — draft guard", () => {
     const spy = vi.spyOn(globalThis, "fetch");
     spy
       .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 })) // guard GET
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ...draft, line_items: [{ id: 777 }] }), { status: 200 })); // PATCH
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...draft, line_items: [{ id: 777 }] }), { status: 200 }),
+      ); // PATCH
     await estimatesCommand(["edit", "5", "--update-line", "777|Service|220||revised rate"]);
     const patch = spy.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH");
-    const body = JSON.parse((patch?.[1] as RequestInit).body as string);
-    expect(body.line_items).toEqual([{ id: 777, kind: "Service", unit_price: 220, description: "revised rate" }]);
+    const body = JSON.parse((patch![1] as RequestInit).body as string);
+    expect(body.line_items).toEqual([
+      { id: 777, kind: "Service", unit_price: 220, description: "revised rate" },
+    ]);
   });
 
   it("requires at least one field or line change", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 }));
-    await expect(estimatesCommand(["edit", "5"])).rejects.toThrow(/at least one field or line change/);
-    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(false);
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 }));
+    await expect(estimatesCommand(["edit", "5"])).rejects.toThrow(
+      /at least one field or line change/,
+    );
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(
+      false,
+    );
   });
 
   it("refuses to edit a non-draft and never PATCHes", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(accepted), { status: 200 }));
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(accepted), { status: 200 }));
     await expect(estimatesCommand(["edit", "6", "--notes", "x"])).rejects.toThrow(/not a draft/);
-    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(false);
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(
+      false,
+    );
   });
 
   it("refuses to delete a non-draft and never DELETEs", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify(accepted), { status: 200 }));
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(accepted), { status: 200 }));
     await expect(estimatesCommand(["delete", "6"])).rejects.toThrow(/not a draft/);
-    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(false);
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(
+      false,
+    );
   });
 
   it("deletes a draft after the guard passes", async () => {
@@ -277,7 +412,9 @@ describe("estimates edit/delete — draft guard", () => {
       .mockResolvedValueOnce(new Response("", { status: 200 })); // DELETE
     const out = await estimatesCommand(["delete", "5"]);
     expect(out).toContain("draft deleted");
-    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(true);
+    expect(spy.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(
+      true,
+    );
   });
 
   it("delete of an absent estimate is an idempotent no-op", async () => {
@@ -303,7 +440,8 @@ describe("write boundary — out-of-scope endpoints are never mutated", () => {
     const refs = [...src.matchAll(/[\\`"][^\\`"]*\/messages\b/g)];
     expect(refs.length).toBeGreaterThan(0); // a read does exist
     for (const m of refs) {
-      const line = src.slice(Math.max(0, m.index! - 40), m.index! + 40);
+      // Wide enough to span a line-wrapped `paginateAll<...>(` call header.
+      const line = src.slice(Math.max(0, m.index! - 120), m.index! + 40);
       expect(line).toContain("paginateAll");
     }
   });

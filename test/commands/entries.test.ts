@@ -36,9 +36,26 @@ afterEach(() => {
 describe("entries log", () => {
   it("creates a duration entry and returns its id", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      json({ id: 999, spent_date: "2026-06-08", project: { name: "GTFS" }, task: { name: "Dev" }, hours: 1.5, is_running: false }),
+      json({
+        id: 999,
+        spent_date: "2026-06-08",
+        project: { name: "GTFS" },
+        task: { name: "Dev" },
+        hours: 1.5,
+        is_running: false,
+      }),
     );
-    const out = await entriesCommand(["log", "--project", "10", "--task", "20", "--hours", "1.5", "--notes", "x"]);
+    const out = await entriesCommand([
+      "log",
+      "--project",
+      "10",
+      "--task",
+      "20",
+      "--hours",
+      "1.5",
+      "--notes",
+      "x",
+    ]);
     expect(out).toContain("logged");
     expect(out).toContain("999");
     const [, init] = spy.mock.calls[0]!;
@@ -48,7 +65,9 @@ describe("entries log", () => {
   });
 
   it("requires --project and --task", async () => {
-    await expect(entriesCommand(["log", "--hours", "1"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(entriesCommand(["log", "--hours", "1"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
   });
 
   it("rejects --started in a duration-mode account (no network)", async () => {
@@ -62,7 +81,9 @@ describe("entries log", () => {
 
 describe("entries edit / delete", () => {
   it("PATCHes only the supplied fields", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(json({ id: 5, spent_date: "2026-06-08", hours: 2, notes: "new" }));
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(json({ id: 5, spent_date: "2026-06-08", hours: 2, notes: "new" }));
     await entriesCommand(["edit", "5", "--notes", "new"]);
     const [url, init] = spy.mock.calls[0]!;
     expect(String(url)).toContain("/time_entries/5");
@@ -97,7 +118,9 @@ describe("entries timers", () => {
   });
 
   it("is a no-op when stopping an already-stopped entry", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(json({ id: 7, is_running: false }));
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(json({ id: 7, is_running: false }));
     const out = await entriesCommand(["stop", "7"]);
     expect(out).toContain("already stopped (no-op)");
     expect(spy).toHaveBeenCalledTimes(1); // only the GET, no stop call
@@ -113,22 +136,44 @@ describe("entries timers", () => {
 describe("entries get / today", () => {
   it("shows full detail with complete notes", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      json({ id: 5, spent_date: "2026-06-08", project: { name: "GTFS" }, task: { name: "Dev" }, hours: 2, notes: "a".repeat(300) }),
+      json({
+        id: 5,
+        spent_date: "2026-06-08",
+        project: { name: "GTFS" },
+        task: { name: "Dev" },
+        hours: 2,
+        notes: "a".repeat(300),
+      }),
     );
     const out = await entriesCommand(["get", "5"]);
     expect(out).toContain("a".repeat(300)); // not truncated
   });
 
   it("requires a numeric id for get", async () => {
-    await expect(entriesCommand(["get", "abc"])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(entriesCommand(["get", "abc"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
   });
 
   it("lists today's entries with a daily total", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          time_entries: [{ id: 1, project: { name: "GTFS" }, task: { name: "Dev" }, hours: 2, notes: "x", is_running: false }],
-          page: 1, per_page: 2000, total_pages: 1, total_entries: 1, links: { next: null },
+          time_entries: [
+            {
+              id: 1,
+              project: { name: "GTFS" },
+              task: { name: "Dev" },
+              hours: 2,
+              notes: "x",
+              is_running: false,
+            },
+          ],
+          page: 1,
+          per_page: 2000,
+          total_pages: 1,
+          total_entries: 1,
+          links: { next: null },
         }),
         { status: 200 },
       ),

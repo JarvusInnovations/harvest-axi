@@ -22,6 +22,26 @@ Read commands that answer "everything over this period" must paginate the Harves
 
 A period review of hundreds of entries must not dump hundreds of rows by default. Lead with **pre-computed aggregates** — total hours, billable vs non-billable, per-scope subtotals (by user / project / client / task / day depending on the grouping) — because that is the answer to the actual question. The raw entry rows are available behind an explicit flag or a narrower scope. Every entry row carries a stable `id` so the agent can chase any single entry with a detail view instead of us inlining everything.
 
+## Preview to stdout, full data to a file
+>
+> Settled across the org in [kunchenguid/axi#32](https://github.com/kunchenguid/axi/issues/32) and implemented in metabase-axi, otter-axi, gitsheets-axi, and hq-axi. harvest-axi is the fourth.
+
+stdout belongs to the **agent**, always. It is TOON, it is capped, and it never changes shape because a machine also wanted the data. When a caller needs the full payload for a **script**, it goes to a **file** via an explicit `--<fmt>-out[=path]` flag, purely additively — the stdout view is byte-identical whether or not a file was written.
+
+Never add a `--json`-to-stdout mode. Piping structured output through stdout fights the stdout/stderr contract and hands a model a token-heavy format it reads worse than TOON.
+
+The file is not free surface area, though: a machine-output flag is earned by a **strong, recurring** script use case, not offered everywhere for symmetry. The test is *"does a script consume this often, doing deterministic multi-row work a model shouldn't do by hand?"* — summing N invoice amounts or turning N entries into line items, yes; a scalar or a narrative a model lifts straight out of TOON, no.
+
+## Fail loud on unrecognized input
+>
+> `review --user <id>` silently returning whole-team totals ([#14](https://github.com/JarvusInnovations/harvest-axi/issues/14)) is the cautionary tale: a dropped input produces plausible-looking output the agent then trusts.
+
+An unrecognized flag is an **error with exit 2**, never a silent no-op — the same guarantee already owed for an unknown command. Wrong-but-plausible is strictly worse than a hard failure, because nothing downstream can detect it.
+
+Two flags whose meanings contradict each other are the same failure in a different costume: reject the combination rather than letting a precedence rule silently discard one of them.
+
+Every rejection is self-correcting in one turn — name the offending flag, list the command's valid flags inline, and give a renamed or removed flag a targeted pointer to its replacement rather than the generic list.
+
 ## Idempotent, non-interactive mutations
 
 Every write completes with flags alone — never prompt. Stopping an already-stopped timer, or closing state that already holds, is a no-op with exit 0, not an error. Reserve non-zero exits for intents that genuinely cannot be satisfied. Edits to time entries default to **the authenticated user's own entries**; touching someone else's requires an explicit, unambiguous `--user`.

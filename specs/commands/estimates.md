@@ -32,7 +32,10 @@ A self-contained detail view (no truncation, no row cap) rendered as stacked blo
 - `line_items[N]{kind,description,quantity,unit_price,amount,taxed}` — no `project` column (estimate lines aren't project-linked)
 - `messages[N]{sent_at,event_type,recipients,subject}` — the send/transition history
 
-`--raw` dumps the untranslated estimate JSON for any field not mapped above.
+There is no `--raw` — removed with a migration hint for the same reason as on
+[invoices](invoices.md): it advertised JSON but rendered TOON. `estimates` has no
+recurring script use case, so it gains no export flag either (see
+[machine-output](../behaviors/machine-output.md)); the blocks above are the detail view.
 
 ## Writes — draft workbench only
 

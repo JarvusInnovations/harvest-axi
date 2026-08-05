@@ -53,10 +53,7 @@ export function mapEnum(
 }
 
 /** Compute a column from the whole item (derived values). */
-export function computed(
-  name: string,
-  fn: (item: Record<string, unknown>) => unknown,
-): FieldDef {
+export function computed(name: string, fn: (item: Record<string, unknown>) => unknown): FieldDef {
   return { name, extract: fn };
 }
 
