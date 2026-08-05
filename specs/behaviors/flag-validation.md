@@ -22,20 +22,35 @@ agent self-corrects in one turn rather than spending a round trip on `--help`:
 error: Unknown flag --stat for `review`
 help[2]:
   Valid flags: --since, --from, --to, --team, --user, --project, --client, --task, --billable, --non-billable, --unbilled, --approval, --by, --rounded, --limit, --fields
-  Global flags --help, --json-out, --csv-out are always allowed
+  --help is always allowed
 ```
 
 Validation happens **per subcommand**, not per top-level command — `entries list` and
 `entries log` accept different flags, and only the subcommand layer knows which is in
 play.
 
+**Every suggestion must be true of the command it is printed for.** A valid-flags line
+that advertises a flag the same command rejects is worse than no line at all — the agent
+believes it and retries the same call. Concretely: only commands in
+[machine-output](machine-output.md)'s Applies-To table may mention the export flags.
+
 ### Globals
 
-`--help`, `--json-out`, and `--csv-out` are accepted on every command's flag list and
-are never reported as unknown. The export flags are *accepted* globally but only *act*
-on the surfaces listed in [machine-output](machine-output.md); elsewhere they are
-rejected with a targeted message naming the commands that do export, rather than
-silently doing nothing.
+**`--help` is the only universally-accepted flag.**
+
+The export flags (`--json-out`, `--csv-out`) are *recognized* everywhere — they are never
+reported as an unknown typo, because they are real flags with a real meaning — but they
+are only *supported* on the surfaces in [machine-output](machine-output.md). On any other
+command they are rejected with a targeted message naming the commands that do export.
+That is a different thing from being "always allowed", and the wording must not conflate
+them.
+
+**Recognition matches on the flag name, not the whole token.** `--json-out` and
+`--json-out=/tmp/x.json` are the same flag, and both must produce the same targeted
+redirect on a non-exporting command. Matching the raw token with an equality test silently
+routes the attached-value form to the generic unknown-flag path — which is how the
+contradiction in [#19](https://github.com/JarvusInnovations/harvest-axi/issues/19) reached
+users. The name/value split therefore happens **before** any flag is classified.
 
 ### Named windows
 

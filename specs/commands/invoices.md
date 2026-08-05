@@ -29,7 +29,7 @@ A self-contained detail view (no truncation, no row cap) rendered as stacked blo
 - `invoice` — `id · number · state · client · subject · purchase_order · creator · issue_date · due_date · payment_term · period_start · period_end · payment_options · created_at · updated_at`
 - `money` — `amount · due_amount · currency · tax · tax_amount · tax2 · tax2_amount · discount · discount_amount`
 - `lifecycle` — `sent_at · paid_at · paid_date · closed_at`
-- `links` — `web` + `pdf` public URLs composed from `client_key`
+- `links` — `web` + `pdf` public URLs composed from `client_key` (see [below](#invoices-pdf-id--outpath--download-the-pdf))
 - `references` — `estimate · retainer · recurring_invoice_id` (only the present ones)
 - `line_items[N]{kind,description,project,quantity,unit_price,amount,taxed}`
 - `payments[N]{paid_date,amount,recorded_by,notes}` — folded in from the payments sub-resource
@@ -40,6 +40,39 @@ normal object renderer, so nothing could parse it; it is removed with a migratio
 pointing at `--json-out` per [flag-validation](../behaviors/flag-validation.md). The
 blocks above are the detail view; a machine that wants the untranslated record uses
 `invoices --json-out` and filters by id.
+
+**This view carries exactly one suggestion** — the `invoices pdf <id>` hint below —
+emitted only when the `links` block resolved. Detail views otherwise omit suggestions
+per AXI §9, because "view the thing you are already viewing" is noise. Downloading is
+the exception that earns the line: it is a real next action the agent cannot infer from
+a URL sitting in the output, and without the hint the `links` block is inert text
+between `lifecycle` and `line_items`.
+
+### `invoices pdf <id> [--out=<path>]` — download the PDF
+
+Harvest exposes each invoice as a public PDF at the `client_key` URL
+(`{base_uri}/client/invoices/{client_key}.pdf`). This subcommand fetches it and writes
+it to disk, so the agent never has to shell out to `curl` and invent a filename.
+
+- Bare → an auto-generated path, `<os-temp-dir>/harvest-axi/invoice-<number>-<id>.pdf`.
+  `--out=<path>` writes exactly there. The `=` form is required, for the same reason as
+  the [export flags](../behaviors/machine-output.md) — a space-separated value would
+  swallow the `<id>` positional — and the same targeted error names the `=` form.
+- **Auto-generated files are `0600`.** The `client_key` URL is *public and
+  unauthenticated* — anyone holding the link can read the invoice — so the downloaded
+  artifact is treated as sensitive even though fetching it needed no token.
+- On success stdout reports `wrote:` (path + byte count) plus `invoice`, `client`, and
+  `amount`, so the download is confirmable without opening the file or a follow-up `get`.
+- **Requires a cached `base_uri`.** When the profile cache lacks it, fail with the
+  existing remedy (`auth whoami --refresh`) rather than guessing an account URL.
+- An invoice with no `client_key` (Harvest omits it on some drafts) fails naming that
+  reason — it is a property of the invoice, not a bad request.
+- Read-only: fetching a public URL neither mutates the invoice nor counts as sending it,
+  so this stays inside the [write boundary](../api/invoices.md#write-boundary--out-of-scope-deliberate-recorded).
+
+Estimates expose the identical `client_key` mechanism but get no such verb yet — no
+recurring demand has surfaced, per the earned-not-uniform rule in
+[machine-output](../behaviors/machine-output.md#applies-to).
 
 ## Writes — draft workbench only
 

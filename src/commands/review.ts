@@ -3,12 +3,7 @@ import { requireCredentials } from "../harvest/client.js";
 import { assertUserScope, fetchEntries } from "../harvest/entry-query.js";
 import { joinBlocks, renderHelp, renderList, renderObject } from "../output/index.js";
 import { type RangeFlags, NAMED_WINDOWS } from "../time/ranges.js";
-import {
-  normalizeArgs,
-  rejectInertExportFlag,
-  rejectUnknownFlag,
-  rejectUnknownPositional,
-} from "../cli/args.js";
+import { normalizeArgs, rejectUnknownFlag, rejectUnknownPositional } from "../cli/args.js";
 
 export const REVIEW_HELP = `usage: harvest-axi review [scope] [window] [--by <axis>] [flags]
 time window (default: last 7d for you, this-week for --team):
@@ -176,7 +171,6 @@ function parseReviewFlags(rawArgs: string[]): ReviewFlags {
           flags.range.named = arg.slice(2);
           break;
         }
-        if (arg === "--json-out" || arg === "--csv-out") rejectInertExportFlag(arg, "review");
         if (arg.startsWith("--")) rejectUnknownFlag(arg, REVIEW_FLAGS, "review");
         rejectUnknownPositional(
           arg,

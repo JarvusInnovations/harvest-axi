@@ -93,6 +93,64 @@ describe("renamed and removed flags get targeted hints", () => {
   });
 });
 
+describe("export-flag recognition is form-independent (#19)", () => {
+  // The bug was that one form of one flag took a different code path, so the
+  // matrix {bare, =path} × {command} is the regression surface.
+  const NON_EXPORTING: [string, (a: string[]) => Promise<unknown>][] = [
+    ["review", (a) => reviewCommand(a)],
+    ["reports", (a) => reportsCommand(["projects", ...a])],
+    ["estimates", (a) => estimatesCommand(a)],
+    ["browse", (a) => browseCommand(["projects", ...a])],
+    ["invoices get", (a) => invoicesCommand(["get", "1", ...a])],
+    ["estimates get", (a) => estimatesCommand(["get", "1", ...a])],
+  ];
+
+  for (const [label, run] of NON_EXPORTING) {
+    for (const token of ["--json-out", "--json-out=/tmp/x.json", "--csv-out=/tmp/x.csv"]) {
+      it(`${label} redirects ${token} instead of calling it unknown`, async () => {
+        const spy = vi.spyOn(globalThis, "fetch");
+        const err = (await run([token]).catch((e: Error) => e)) as Error & {
+          suggestions?: string[];
+        };
+        expect(err.message).not.toMatch(/Unknown flag/);
+        expect(err.message).toMatch(/not supported on/);
+        expect((err.suggestions ?? []).join(" ")).toContain("entries list");
+        expect(spy).not.toHaveBeenCalled();
+      });
+    }
+  }
+
+  it("no unknown-flag error advertises a flag that command rejects", async () => {
+    const err = (await reviewCommand(["--nope"]).catch((e: Error) => e)) as Error & {
+      suggestions?: string[];
+    };
+    expect((err.suggestions ?? []).join(" ")).not.toContain("--json-out");
+  });
+});
+
+describe("the space form names the = form (#19 nit)", () => {
+  it("on an export surface", async () => {
+    const err = (await entriesCommand(["list", "--json-out", "/tmp/y.json"]).catch(
+      (e: Error) => e,
+    )) as Error & { suggestions?: string[] };
+    expect(err.message).toMatch(/attached with/);
+    expect((err.suggestions ?? []).join(" ")).toContain("--json-out=/tmp/y.json");
+  });
+
+  it("but a bare id after the flag is not mistaken for a path", async () => {
+    // `entries get --json-out 123` must keep working — the id is the positional.
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ id: 123, spent_date: "2026-06-08" }), {
+          status: 200,
+        }),
+      ),
+    );
+    const out = await entriesCommand(["get", "--json-out", "123"]);
+    expect(out).toContain("id: 123");
+  });
+});
+
 describe("export flags are rejected where they do not act", () => {
   it("review names the exporting surfaces instead", async () => {
     await rejects(() => reviewCommand(["--json-out"]), "entries list", "invoices");

@@ -58,9 +58,32 @@ describe("rejectUnknownFlag", () => {
     expect(err.suggestions?.join(" ")).toContain("--state, --limit");
   });
 
-  it("always mentions the globals", () => {
+  it("never advertises export flags on a command that rejects them (#19)", () => {
     const err = caught(() => rejectUnknownFlag("--nope", [], "review"));
-    expect(err.suggestions?.join(" ")).toContain("--json-out");
+    const help = err.suggestions?.join(" ") ?? "";
+    expect(help).toContain("--help is always allowed");
+    // Claiming --json-out is "always allowed" on a command that rejects it is
+    // worse than saying nothing: the agent believes it and retries.
+    expect(help).not.toContain("--json-out");
+  });
+
+  it("does mention export flags on a command that supports them", () => {
+    const err = caught(() => rejectUnknownFlag("--nope", [], "entries list", { exports: true }));
+    expect(err.suggestions?.join(" ")).toContain("--json-out[=path]");
+  });
+
+  it("routes an export flag on a non-exporting command to the redirect, both forms", () => {
+    for (const token of ["--json-out", "--json-out=/tmp/x.json", "--csv-out=/tmp/x.csv"]) {
+      const err = caught(() => rejectUnknownFlag(token, ["--by"], "review"));
+      // The attached-value form took the generic path before #19.
+      expect(err.message).toMatch(/not supported on `review`/);
+      expect(err.suggestions?.join(" ")).toContain("entries list");
+    }
+  });
+
+  it("classifies renamed/removed flags by name, not raw token", () => {
+    const err = caught(() => rejectUnknownFlag("--json=/tmp/x", ["--by"], "review"));
+    expect(err.message).toContain("--json-out[=path]");
   });
 
   it("gives --raw a targeted migration hint, not the generic list", () => {

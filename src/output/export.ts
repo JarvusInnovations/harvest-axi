@@ -21,6 +21,38 @@ const OUT_FLAGS: Record<string, ExportFormat> = {
   "--csv-out": "csv",
 };
 
+/**
+ * Does this token obviously name a file?
+ *
+ * Used only to improve the error when someone writes `--json-out <path>` (the
+ * space form, which can't be supported — it would swallow a positional). The
+ * test is deliberately narrow: `entries get --json-out 123` must NOT be
+ * mistaken for a stray path, so a bare id never qualifies.
+ */
+function looksLikePath(token: string | undefined): boolean {
+  if (!token || token.startsWith("-")) return false;
+  return token.includes("/") || /\.(json|csv|tsv|pdf)$/i.test(token);
+}
+
+/**
+ * Guard an optional-value flag against the space form.
+ *
+ * Shared by every `--<x>-out[=path]`-shaped flag rather than copied per call
+ * site: duplicating this class of rule is what let the two `--json-out` forms
+ * drift apart in #19.
+ */
+export function assertAttachedValueForm(
+  flag: string,
+  followingToken: string | undefined,
+  autoDescription: string,
+): void {
+  if (!looksLikePath(followingToken)) return;
+  throw new AxiError(`${flag} takes its path attached with \`=\``, "VALIDATION_ERROR", [
+    `Use \`${flag}=${followingToken}\` to write there`,
+    `Use \`${flag}\` bare to ${autoDescription}`,
+  ]);
+}
+
 export interface ExportRequest {
   format: ExportFormat;
   /** Explicit path from `--<fmt>-out=<path>`; undefined means auto-generate. */
@@ -44,13 +76,20 @@ export function parseExportRequest(args: string[]): ParsedExportArgs {
   const rest: string[] = [];
   const found: { flag: string; request: ExportRequest }[] = [];
 
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     const eq = arg.indexOf("=");
     const name = eq < 0 ? arg : arg.slice(0, eq);
     const format = OUT_FLAGS[name];
     if (!format) {
       rest.push(arg);
       continue;
+    }
+    // The space form can't be supported (it would swallow a positional), but
+    // failing with a stray-positional error explains nothing — name the form
+    // that works instead.
+    if (eq < 0) {
+      assertAttachedValueForm(name, args[i + 1], "auto-generate a path under the OS temp dir");
     }
     found.push({
       flag: name,
@@ -88,10 +127,19 @@ function expandPath(path: string): string {
  * first and had to correct it.)
  */
 export function resolveExportPath(req: ExportRequest, kind: string): string {
-  if (req.path) return expandPath(req.path);
   // `:` and `.` are not filesystem-safe on every platform.
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return join(tmpdir(), "harvest-axi", `${stamp}-${kind}.${req.format}`);
+  return resolveOutPath(req.path, `${stamp}-${kind}.${req.format}`);
+}
+
+/**
+ * Resolve an explicit destination (with `~` / relative expansion) or fall back
+ * to `autoName` under the OS scratch dir. Shared so every file-writing flag
+ * resolves paths identically.
+ */
+export function resolveOutPath(explicit: string | undefined, autoName: string): string {
+  if (explicit) return expandPath(explicit);
+  return join(tmpdir(), "harvest-axi", autoName);
 }
 
 function helpLineFor(format: ExportFormat, path: string, kind: string): string {

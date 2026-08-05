@@ -46,6 +46,11 @@ Rules common to both:
 - The `=<path>` is **optional**, and the `=` form is required for an explicit path —
   `--json-out <path>` must not be accepted, because a space-separated value would
   swallow a positional (`entries get <id> --json-out` has one).
+- **The space form must fail by naming the `=` form**, not by surfacing the path as a
+  stray positional. `--json-out /tmp/x.json` reports that the value must be attached and
+  shows `--json-out=/tmp/x.json`. A constraint the tool enforces but never explains is
+  indistinguishable from a bug to the caller — an `Unexpected argument "/tmp/x.json"`
+  gives an agent nothing to correct toward.
 - Bare flag → auto-generate `<os-temp-dir>/harvest-axi/<UTC-timestamp>-<kind>.<ext>`.
   An auto export is **ephemeral scratch**, so it belongs in the OS temp dir, which the
   OS prunes — never under `~/.config/harvest-axi`, which nothing prunes and which would
@@ -55,10 +60,13 @@ Rules common to both:
   explicit path is the caller's responsibility and is written with the default umask.
 - At most **one** export flag per invocation; combining them is a `VALIDATION_ERROR`
   (exit 2).
-- Export flags are global (allowed on every command's flag list) but only *act* on the
-  surfaces above. On any other command they are rejected as unknown per
-  [flag-validation](flag-validation.md) — an accepted-but-inert flag is exactly the
-  silent-drop failure that spec exists to prevent.
+- Export flags are **recognized everywhere but supported only on the surfaces above**.
+  On any other command they are rejected with a targeted redirect naming these surfaces
+  — never silently ignored (an accepted-but-inert flag is the silent-drop failure
+  [flag-validation](flag-validation.md) exists to prevent), and never with a bare
+  "unknown flag" (they are not typos). Both the bare and `=path` forms get that same
+  redirect. Commands outside the table must not advertise these flags in their
+  valid-flags line.
 
 ### The file ignores display caps
 
