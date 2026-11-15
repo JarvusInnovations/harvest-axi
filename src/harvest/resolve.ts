@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { AxiError } from "axi-sdk-js";
-import { cacheDir } from "../config.js";
+import { cacheDir, configDir, ensurePrivateDir, writePrivateFile } from "../config.js";
 import { paginateAll } from "./paginate.js";
 
 export interface NamedEntity {
@@ -54,8 +54,9 @@ export async function loadEntities(
   const res = await paginateAll<Record<string, unknown>>(path, key, {});
   const items = res.items.map((i) => ({ id: Number(i.id), name: nameOf(kind, i) }));
   try {
-    mkdirSync(cacheDir(), { recursive: true });
-    writeFileSync(file, JSON.stringify(items));
+    ensurePrivateDir(configDir());
+    ensurePrivateDir(cacheDir());
+    writePrivateFile(file, JSON.stringify(items));
   } catch {
     // a write failure just means the next call re-fetches — not fatal
   }

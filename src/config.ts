@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -47,12 +55,71 @@ export function cacheDir(): string {
   return join(configDir(), "cache");
 }
 
+// Private modes ────────────────────────────────────────────────────
+// The config directory holds the access token, so everything under it is
+// private to the user: directories 0700, files 0600 (specs/architecture.md
+// § Config & state). All of it is best-effort — a failed chmod (a directory
+// the user doesn't own, a filesystem without POSIX modes) never fails a command.
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+
+/** chmod `path` to `mode` only when it is group- or world-accessible. */
+function tighten(path: string, mode: number): void {
+  try {
+    if ((statSync(path).mode & 0o077) !== 0) chmodSync(path, mode);
+  } catch {
+    // Missing path or not ours to chmod — nothing to tighten.
+  }
+}
+
+/** Create `dir` at 0700, or tighten it when it already exists wider. */
+export function ensurePrivateDir(dir: string): void {
+  if (existsSync(dir)) {
+    tighten(dir, DIR_MODE);
+    return;
+  }
+  mkdirSync(dir, { recursive: true, mode: DIR_MODE });
+  // The creation mode is subject to the umask, so set it explicitly.
+  try {
+    chmodSync(dir, DIR_MODE);
+  } catch {
+    // Best-effort.
+  }
+}
+
+/**
+ * Write `data` to `path` at 0600. The creation mode only applies to a new
+ * file, so an existing loose file is tightened before the new content lands
+ * and the mode is set again after the write.
+ */
+export function writePrivateFile(path: string, data: string): void {
+  tighten(path, FILE_MODE);
+  writeFileSync(path, data, { mode: FILE_MODE });
+  try {
+    chmodSync(path, FILE_MODE);
+  } catch {
+    // Best-effort.
+  }
+}
+
+/**
+ * Tighten an existing install: a config directory or `config.json` written by
+ * an older version (0755 / 0644 under a typical umask) is fixed in place the
+ * next time the tool touches config, with no re-authentication. Never creates
+ * anything.
+ */
+export function tightenConfigPermissions(): void {
+  tighten(configDir(), DIR_MODE);
+  tighten(configPath(), FILE_MODE);
+}
+
 // Config read/write ─────────────────────────────────────────────────
 export function defaultConfig(): HarvestConfig {
   return { version: CONFIG_VERSION };
 }
 
 export function readConfig(): HarvestConfig {
+  tightenConfigPermissions();
   const path = configPath();
   if (!existsSync(path)) return defaultConfig();
   try {
@@ -63,9 +130,8 @@ export function readConfig(): HarvestConfig {
 }
 
 export function writeConfig(cfg: HarvestConfig): void {
-  const dir = configDir();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath(), `${JSON.stringify(cfg, null, 2)}\n`);
+  ensurePrivateDir(configDir());
+  writePrivateFile(configPath(), `${JSON.stringify(cfg, null, 2)}\n`);
 }
 
 export function clearConfig(): void {
@@ -80,6 +146,9 @@ export function clearConfig(): void {
  * neither source provides a complete token + account id pair.
  */
 export function resolveCredentials(): Credentials | null {
+  // Env credentials skip the config read below, but a stale stored token
+  // still deserves private modes.
+  tightenConfigPermissions();
   const envToken = process.env.HARVEST_ACCESS_TOKEN;
   const envAccount = process.env.HARVEST_ACCOUNT_ID;
   if (envToken && envAccount) {
