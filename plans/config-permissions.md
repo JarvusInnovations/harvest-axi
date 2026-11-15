@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/architecture.md
@@ -49,13 +49,13 @@ Port the `ensureDir` + `chmod`-after-write shape from the canonical source
 
 ## Validation
 
-- [ ] A fresh `writeConfig()` under umask `022` leaves the directory `0700` and `config.json` `0600`
-- [ ] A pre-existing `0755` directory + `0644` `config.json` is tightened by `readConfig()` alone, content unchanged
-- [ ] The same loose pair is tightened by `resolveCredentials()` when env credentials win
-- [ ] `writeConfig()` over a pre-existing `0644` file leaves it `0600`
-- [ ] The reference-data cache directory is `0700` and its files `0600`
-- [ ] A missing config directory is not created by a read
-- [ ] Full check set green (lint, format, typecheck, build, tests)
+- [x] A fresh `writeConfig()` under umask `022` leaves the directory `0700` and `config.json` `0600`
+- [x] A pre-existing `0755` directory + `0644` `config.json` is tightened by `readConfig()` alone, content unchanged
+- [x] The same loose pair is tightened by `resolveCredentials()` when env credentials win
+- [x] `writeConfig()` over a pre-existing `0644` file leaves it `0600`
+- [x] The reference-data cache directory is `0700` and its files `0600`
+- [x] A missing config directory is not created by a read
+- [x] Full check set green (lint, format, typecheck, build, tests)
 
 ## Risks / unknowns
 
@@ -63,3 +63,23 @@ Port the `ensureDir` + `chmod`-after-write shape from the canonical source
   config dir) fails; it must not fail the command. All tightening is best-effort.
 - **Windows** has no POSIX modes; `chmod` is close to a no-op there and the mode
   tests are skipped on `win32`.
+
+## Notes
+
+- **Tightening only `chmod`s when group/world bits are set** (one `stat` per
+  path otherwise), so the common already-private case costs no write syscall and
+  a directory the user can read but doesn't own is left alone without error.
+- **`resolveCredentials()` tightens too**, not just `readConfig()`/`writeConfig()`:
+  with env credentials the config file is never read on that path, and a stale
+  stored token should still end up private.
+- **The cache writer was creating the config directory `0755`** on a first run
+  with env credentials (`mkdirSync(cacheDir(), { recursive: true })`), which
+  would have left a later `auth setup` relying on the self-heal. It now goes
+  through the same helpers.
+- 280 tests (+8): `test/config.test.ts`, run under an explicit `022` umask so
+  they fail against a write that leaves the mode to it.
+
+## Follow-ups
+
+- The "Smaller" items of #23 remain open, one plan each.
+- `doctor` could report the config file's mode as a check; not specced.
