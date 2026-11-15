@@ -12,7 +12,7 @@ Its headline workflow is **period-based time-entry review** — for yourself, yo
 harvest-axi auth setup --token <personal-access-token>
 ```
 
-Mint a Personal Access Token at <https://id.getharvest.com/developers>. The account id is auto-selected when your token sees exactly one Harvest account (otherwise pass `--account <id>`). Credentials are stored in `~/.config/harvest-axi/config.json`; `HARVEST_ACCESS_TOKEN` + `HARVEST_ACCOUNT_ID` override the file for CI/cron. Verify with `harvest-axi doctor`.
+Mint a Personal Access Token at <https://id.getharvest.com/developers>. The account id is auto-selected when your token sees exactly one Harvest account (otherwise pass `--account <id>`). Credentials are stored in `~/.config/harvest-axi/config.json` (mode `0600`, directory `0700`); `HARVEST_ACCESS_TOKEN` + `HARVEST_ACCOUNT_ID` override the file for CI/cron. Verify with `harvest-axi doctor`.
 
 ## Commands
 
