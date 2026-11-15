@@ -5,7 +5,7 @@
 `harvest-axi auth setup` — agent-guided, non-interactive credential capture.
 
 - Accepts `--token <pat>` and `--account <id>` flags.
-- On receiving a token, validates by calling `GET /v2/users/me` (+ `/v2/company`), stores `{ account_id, token, default_user_id, profile_cache }` to `~/.config/harvest-axi/config.json`, and confirms with the resolved account + user name. It does **not** install hooks (that is `setup hooks` — see [`setup.md`](setup.md)).
+- On receiving a token, validates by calling `GET /v2/users/me` (+ `/v2/company`), stores `{ account_id, token, default_user_id, profile_cache }` to `~/.config/harvest-axi/config.json` (mode `0600`, in a `0700` directory — see [architecture](../architecture.md#config--state)), and confirms with the resolved account + user name. It does **not** install hooks (that is `setup hooks` — see [`setup.md`](setup.md)).
 - With **no token but already configured**, re-validates the stored credentials and refreshes the profile cache — the "revalidate" path. With **no token and unconfigured**, returns a **structured instruction** (not a prompt) pointing at <https://id.getharvest.com/developers>, then exits 2.
 - Idempotent: re-running with the same values revalidates and reports the existing identity (exit 0).
 - If the token can see multiple accounts and `--account` is omitted/ambiguous, lists the candidate accounts (id + name) as a `VALIDATION_ERROR`.

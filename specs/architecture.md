@@ -38,6 +38,8 @@ The `output/` and `time/` modules are reusable infrastructure copied in spirit f
 
 - Config dir: `$XDG_CONFIG_HOME/harvest-axi` or `~/.config/harvest-axi`.
 - `config.json` — `{ version, account_id, token, default_user_id, profile_cache }`. Token is a Harvest Personal Access Token.
+- **Modes:** the config directory and everything under it are private to the user — directories `0700`, files `0600` (`config.json` holds the token; `cache/` holds account reference data). The mode is set explicitly after every write, never left to the umask.
+- **Existing installs self-heal:** whenever the tool reads or writes config, or resolves credentials, a config directory or `config.json` that is group- or world-accessible is tightened in place to `0700` / `0600`. No re-authentication is needed, and the tightening is silent and best-effort — a failed `chmod` never fails the command.
 - Env overrides (take precedence, for CI/cron): `HARVEST_ACCOUNT_ID`, `HARVEST_ACCESS_TOKEN`.
 - Session hooks install only via the explicit `setup hooks` command (see [`commands/setup.md`](commands/setup.md)) — never as a side effect of other commands.
 
